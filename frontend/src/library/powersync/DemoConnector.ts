@@ -24,6 +24,8 @@ const USER_ID_STORAGE_KEY = 'ps_user_id';
 
 const DEFAULT_MAX_OPERATIONS = 1000;
 
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
  * The completion boundary: the index of the last transaction the client may complete through, or
  * `-1` if it may complete nothing.
@@ -105,6 +107,14 @@ export class DemoConnector implements PowerSyncBackendConnector {
     };
   }
 
+  /**
+   * The batching config to use for the current upload. Reads the env-derived default; override to
+   * make batching dynamic (e.g. shrink batch size after a fatal error, adjust for network conditions).
+   */
+  protected getBatchingConfig(): BatchingConfig | null {
+    return this.config.batching;
+  }
+
   private async getWriteClient(database: AbstractPowerSyncDatabase): Promise<WriteAPIClient> {
     if (!this._writeClient) {
       this._writeClient = new WriteAPIClient({
@@ -117,8 +127,9 @@ export class DemoConnector implements PowerSyncBackendConnector {
   }
 
   async uploadData(database: AbstractPowerSyncDatabase): Promise<void> {
-    if (this.config.batching) {
-      return this.uploadTransactionBatch(database, this.config.batching);
+    const batching = this.getBatchingConfig();
+    if (batching) {
+      return this.uploadTransactionBatch(database, batching);
     }
 
     return this.uploadSingleTransaction(database);
@@ -133,7 +144,14 @@ export class DemoConnector implements PowerSyncBackendConnector {
 
     this._clientId = await database.getClientId();
     const writeClient = await this.getWriteClient(database);
-    const result = await writeClient.processTransaction(transaction);
+
+    let result: TransactionResult;
+    try {
+      result = await writeClient.processTransaction(transaction);
+    } catch (error) {
+      await this.onTransportError(error);
+      return;
+    }
 
     switch (result.status) {
       case 'success':
@@ -146,7 +164,7 @@ export class DemoConnector implements PowerSyncBackendConnector {
         await transaction.complete();
         break;
       case 'retryable_error':
-        this.onRetryableError(result);
+        await this.onRetryableError(result);
         break;
       default:
         //`not_attempted` only ever describes an entry in a batch result
@@ -159,21 +177,36 @@ export class DemoConnector implements PowerSyncBackendConnector {
    * transient failure). The transaction is discarded and the queue moves on regardless of what
    * this method does.
    *
-   * Default behaviour is to log and drop the data. Override to write the failing transaction to a
-   * dead-letter queue, alert someone, or otherwise avoid silent data loss.
+   * Default behaviour is to log and drop the data. Dead-lettering should happen server-side, where
+   * the failed write can actually be inspected and fixed — a client-side dead-letter queue is opaque
+   * to that process. Override to alert someone or forward `result` to a backend endpoint, not to
+   * store it locally.
    */
   protected async onFatalTransaction(transaction: CrudTransaction, result: TransactionResult): Promise<void> {
     console.error('Fatal error:', result.failedOperation?.error_code, result.message);
   }
 
   /**
-   * Called for a transient failure (network error, temporary server error). Default behaviour
-   * throws, which causes PowerSync to retry the upload after a delay. Override to add custom
-   * logging/backoff, but a retryable error must still result in a thrown error so the transaction
-   * stays in the queue.
+   * Called for a transient, in-band failure (the backend responded with `retryable_error`).
+   * Default behaviour waits out the backend's requested `retryAfterMs` (if any) and then throws,
+   * which causes PowerSync to retry the upload. Override to add custom logging/backoff, but a
+   * retryable error must still result in a thrown error so the transaction stays in the queue.
    */
-  protected onRetryableError(result: TransactionResult): never {
+  protected async onRetryableError(result: TransactionResult): Promise<never> {
+    await sleep(result.retryAfterMs ?? 0);
     throw new Error(result.message ?? 'Retryable error');
+  }
+
+  /**
+   * Called for a transport-level failure (network error, timeout, non-2xx response) — the backend
+   * was never reached or never returned a classified result at all. Default behaviour routes it
+   * through {@link onRetryableError} so both failure kinds share one override point and the
+   * transaction stays in the queue for retry. Override to distinguish transport failures from
+   * in-band retryable errors.
+   */
+  protected async onTransportError(error: unknown): Promise<never> {
+    const message = error instanceof Error ? error.message : String(error);
+    return this.onRetryableError({ status: 'retryable_error', message });
   }
 
   private async uploadTransactionBatch(database: AbstractPowerSyncDatabase, batching: BatchingConfig): Promise<void> {
@@ -195,7 +228,14 @@ export class DemoConnector implements PowerSyncBackendConnector {
 
     this._clientId = await database.getClientId();
     const writeClient = await this.getWriteClient(database);
-    const { results } = await writeClient.processTransactionBatch(batch, batching.onFatalError);
+
+    let results: TransactionResult[];
+    try {
+      ({ results } = await writeClient.processTransactionBatch(batch, batching.onFatalError));
+    } catch (error) {
+      await this.onTransportError(error);
+      return;
+    }
 
     // Report everything the backend dropped *before* completing over it, via the same
     // overridable hook the single-transaction path uses.
@@ -216,7 +256,7 @@ export class DemoConnector implements PowerSyncBackendConnector {
     // the retry resumes from the failure instead of re-uploading transactions that already committed.
     const retryable = results.find((result) => result.status === 'retryable_error');
     if (retryable) {
-      this.onRetryableError(retryable);
+      await this.onRetryableError(retryable);
     }
   }
 }

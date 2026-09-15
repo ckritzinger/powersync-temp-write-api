@@ -58,6 +58,7 @@ export interface TransactionResult {
   status: TransactionStatus;
   message?: string;
   failedOperation?: FailedOperation_API;
+  retryAfterMs?: number;
 }
 
 export interface TransactionBatchResult {
@@ -93,7 +94,8 @@ const toApiTransaction = (transaction: CrudTransaction): CrudTransaction_API => 
 const toResult = (response: TransactionResponse): TransactionResult => ({
   status: response.status,
   message: response.message,
-  failedOperation: response.failed_operation
+  failedOperation: response.failed_operation,
+  retryAfterMs: response.retry_after_ms
 });
 
 export class WriteAPIClient implements IWriteAPIClient {
