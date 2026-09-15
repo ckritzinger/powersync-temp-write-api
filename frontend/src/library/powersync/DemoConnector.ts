@@ -140,23 +140,40 @@ export class DemoConnector implements PowerSyncBackendConnector {
         await transaction.complete();
         break;
       case 'fatal_error':
-        // Instead of blocking the queue with these errors,
-        // discard the (rest of the) transaction.
-        //
-        // Note that these errors typically indicate a bug in the application.
-        // If protecting against data loss is important, save the failing records
-        // elsewhere instead of discarding, and/or notify the user.
-        console.error('Fatal error:', result.failedOperation?.error_code, result.message);
+        // Instead of blocking the queue with this error, discard the (rest of the)
+        // transaction. See onFatalTransaction for what happens to the discarded data.
+        await this.onFatalTransaction(transaction, result);
         await transaction.complete();
         break;
       case 'retryable_error':
-        // Error is retryable - e.g. network error or temporary server error.
-        // Throwing an error here causes this call to be retried after a delay.
-        throw new Error(result.message ?? 'Retryable error');
+        this.onRetryableError(result);
+        break;
       default:
         //`not_attempted` only ever describes an entry in a batch result
         throw new Error(`Unexpected upload status: ${result.status}`);
     }
+  }
+
+  /**
+   * Called when the backend permanently rejects a transaction (a bug in the application, not a
+   * transient failure). The transaction is discarded and the queue moves on regardless of what
+   * this method does.
+   *
+   * Default behaviour is to log and drop the data. Override to write the failing transaction to a
+   * dead-letter queue, alert someone, or otherwise avoid silent data loss.
+   */
+  protected async onFatalTransaction(transaction: CrudTransaction, result: TransactionResult): Promise<void> {
+    console.error('Fatal error:', result.failedOperation?.error_code, result.message);
+  }
+
+  /**
+   * Called for a transient failure (network error, temporary server error). Default behaviour
+   * throws, which causes PowerSync to retry the upload after a delay. Override to add custom
+   * logging/backoff, but a retryable error must still result in a thrown error so the transaction
+   * stays in the queue.
+   */
+  protected onRetryableError(result: TransactionResult): never {
+    throw new Error(result.message ?? 'Retryable error');
   }
 
   private async uploadTransactionBatch(database: AbstractPowerSyncDatabase, batching: BatchingConfig): Promise<void> {
@@ -180,20 +197,13 @@ export class DemoConnector implements PowerSyncBackendConnector {
     const writeClient = await this.getWriteClient(database);
     const { results } = await writeClient.processTransactionBatch(batch, batching.onFatalError);
 
-    // Report everything the backend dropped *before* completing over it.
-    //
-    // These errors typically indicate a bug in the application. If protecting against data loss is
-    // important, save the failing records elsewhere instead of discarding, and/or notify the user.
-    //
-    results.forEach((result, index) => {
+    // Report everything the backend dropped *before* completing over it, via the same
+    // overridable hook the single-transaction path uses.
+    for (const [index, result] of results.entries()) {
       if (result.status === 'fatal_error') {
-        console.error(
-          `Fatal error on transaction ${index} of ${results.length}:`,
-          result.failedOperation?.error_code,
-          result.message
-        );
+        await this.onFatalTransaction(batch[index], result);
       }
-    });
+    }
 
     // One completion per batch, at the completion boundary. Completing a transaction also completes
     // every transaction before it, so completing each success in turn would be redundant.
@@ -206,7 +216,7 @@ export class DemoConnector implements PowerSyncBackendConnector {
     // the retry resumes from the failure instead of re-uploading transactions that already committed.
     const retryable = results.find((result) => result.status === 'retryable_error');
     if (retryable) {
-      throw new Error(retryable.message ?? 'Retryable error');
+      this.onRetryableError(retryable);
     }
   }
 }
