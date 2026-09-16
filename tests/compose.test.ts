@@ -67,6 +67,17 @@ const MODES: Mode[] = [
     connectionHost: 'mysql-db:3306'
   },
   {
+    name: 'Example Mode: SQL Server',
+    composeFile: 'docker-compose.yaml:examples/mssql/compose.yaml',
+    projectName: 'write-api-mssql',
+    // mssql-setup is the one-shot CDC bootstrap; SQL Server has no entrypoint directory to drop
+    // SQL into, so it must exist and must complete before PowerSync starts.
+    services: ['backend', 'frontend', 'mongo', 'mongo-rs-init', 'mssql-db', 'mssql-setup', 'powersync'],
+    configMount: 'examples/mssql/powersync',
+    databaseType: 'mssql',
+    connectionHost: 'mssql-db:1433'
+  },
+  {
     name: 'Example Mode: Postgres',
     composeFile: 'docker-compose.yaml:examples/postgres/compose.yaml',
     projectName: 'write-api-postgres',
