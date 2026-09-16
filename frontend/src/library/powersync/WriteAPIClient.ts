@@ -26,10 +26,7 @@ export interface TransactionBatch_API {
   on_fatal_error: OnFatalError;
 }
 
-/**
- * `not_attempted` is only ever returned for an entry in a batch result — the single-transaction
- * endpoint never emits it. It is in the union because both endpoints share one response schema.
- */
+/** `not_attempted` means the batch ended before this transaction was reached. */
 export type TransactionStatus = 'success' | 'retryable_error' | 'fatal_error' | 'not_attempted';
 
 export interface FailedOperation_API {
@@ -50,7 +47,6 @@ export interface TransactionBatchResponse {
 }
 
 export interface WriteAPITransport {
-  postTransaction(body: CrudTransaction_API): Promise<TransactionResponse>;
   postTransactionBatch(body: TransactionBatch_API): Promise<TransactionBatchResponse>;
 }
 
@@ -71,14 +67,10 @@ export interface WriteAPIClientOptions {
 }
 
 export interface IWriteAPIClient {
-  processTransaction(transaction: CrudTransaction): Promise<TransactionResult>;
   processTransactionBatch(transactions: CrudTransaction[], onFatalError: OnFatalError): Promise<TransactionBatchResult>;
-  create(table: string, id: string, data: Record<string, unknown>): Promise<TransactionResult>;
-  update(table: string, id: string, data: Record<string, unknown>): Promise<TransactionResult>;
-  delete(table: string, id: string): Promise<TransactionResult>;
 }
 
-/** Shape one SDK transaction for the wire. Shared by the single-transaction and batch paths. */
+/** Shape one SDK transaction for the wire. */
 const toApiTransaction = (transaction: CrudTransaction): CrudTransaction_API => ({
   crud: transaction.crud.map((op: SDKCrudEntry) => ({
     id: op.id,
@@ -99,15 +91,10 @@ const toResult = (response: TransactionResponse): TransactionResult => ({
 export class WriteAPIClient implements IWriteAPIClient {
   constructor(private options: WriteAPIClientOptions) {}
 
-  async processTransaction(transaction: CrudTransaction): Promise<TransactionResult> {
-    const response = await this.options.transport.postTransaction(toApiTransaction(transaction));
-
-    return toResult(response);
-  }
-
   /**
    * Upload a run of whole transactions in one request. The backend applies each in its own database
-   * transaction, in the order given, and returns one result per transaction sent.
+   * transaction, in the order given, and returns one result per transaction sent. Uploading a single
+   * transaction is a batch of one — there is no separate path for it.
    */
   async processTransactionBatch(
     transactions: CrudTransaction[],
@@ -121,27 +108,5 @@ export class WriteAPIClient implements IWriteAPIClient {
     const response = await this.options.transport.postTransactionBatch(body);
 
     return { results: response.results.map(toResult) };
-  }
-
-  create(table: string, id: string, data: Record<string, unknown>): Promise<TransactionResult> {
-    return this.sendSingle({ op: 'PUT', table, id, op_data: data });
-  }
-
-  update(table: string, id: string, data: Record<string, unknown>): Promise<TransactionResult> {
-    return this.sendSingle({ op: 'PATCH', table, id, op_data: data });
-  }
-
-  delete(table: string, id: string): Promise<TransactionResult> {
-    return this.sendSingle({ op: 'DELETE', table, id });
-  }
-
-  private async sendSingle(entry: Pick<CrudEntry_API, 'op' | 'table' | 'id' | 'op_data'>): Promise<TransactionResult> {
-    const body: CrudTransaction_API = {
-      crud: [entry]
-    };
-
-    const response = await this.options.transport.postTransaction(body);
-
-    return toResult(response);
   }
 }

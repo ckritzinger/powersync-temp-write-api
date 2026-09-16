@@ -119,7 +119,7 @@ this.apiClient = createOpenAPIClient(this.config.backendUrl, {
 ```
 
 Remove the demo's `_writeToken` caching in `DemoConnector.ts` — `supabase-js` owns the
-session lifecycle. A `401` still throws in `postTransaction`, so the PowerSync upload
+session lifecycle. A `401` still throws in `postTransactionBatch`, so the PowerSync upload
 retries; by then `supabase-js` has typically refreshed the token.
 
 ### Step 4: Decide how sync tokens work
@@ -140,8 +140,8 @@ TOKEN=<session access_token>
 curl -i -X POST http://localhost:6060/api/data \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $TOKEN" \
-  -d '{"crud":[]}'
-# expect 200 {"status":"success"} and a backend log line:
+  -d '{"transactions":[{"crud":[]}],"on_fatal_error":"stop"}'
+# expect 200 {"results":[{"status":"success"}]} and a backend log line:
 #   Write authenticated as <supabase user id>
 ```
 
@@ -261,7 +261,7 @@ Whichever provider you use, the snippets above are a starting point — run thes
 against *your* provider before trusting the swap:
 
 1. `POST /api/data` with no `Authorization` header → `401`.
-2. A real, fresh token from a signed-in user → `200 {"status":"success"}`, and the backend
+2. A real, fresh token from a signed-in user → `200 {"results":[{"status":"success"}]}`, and the backend
    logs `Write authenticated as <your provider's user id>`.
 3. Tampered token (flip a character) and expired token → `401`, backend logs
    `Token verification failed: ...`.

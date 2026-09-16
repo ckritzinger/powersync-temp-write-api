@@ -13,26 +13,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Apply a transaction of CRUD operations */
-        post: operations["postCrudTransaction"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/data/batch": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
         /**
-         * Apply a batch of transactions, each in its own database transaction
-         * @description Applies each transaction in the batch in order, each in its own database transaction. Stops at the first failure of any kind.
+         * Apply one or more transactions, each in its own database transaction
+         * @description Applies each transaction in order, each in its own database transaction. Stops at the first failure of any kind.
+         *     One transaction is the degenerate case, not a separate endpoint: a client uploading a single transaction sends a transactions array of length one.
          *     Results holds one entry per transaction sent, in the same order and always the same length as the request. Entries are matched to transactions positionally.
          */
         post: operations["postTransactionBatch"];
@@ -117,7 +101,7 @@ export interface components {
             retry_after_ms?: number;
             /** @description Present when status is fatal_error. Identifies what caused the rollback. */
             failed_operation?: components["schemas"]["FailedOperation"];
-            /** @description Human-readable summary for logging/debugging. */
+            /** @description Human-readable detail for logging/debugging. Present on failures; a successful transaction carries a bare status. */
             message?: string;
         };
         FailedOperation: {
@@ -138,48 +122,6 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    postCrudTransaction: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CrudTransaction"];
-            };
-        };
-        responses: {
-            /** @description Transaction result. Always returns 200 — the outcome  is determined by the status field in the response body. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TransactionResponse"];
-                };
-            };
-            /** @description Missing or invalid token */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageResponse"];
-                };
-            };
-            /** @description Unexpected server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageResponse"];
-                };
-            };
-        };
-    };
     postTransactionBatch: {
         parameters: {
             query?: never;
@@ -193,7 +135,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Batch result. Always returns 200 — outcomes are carried by the per-transaction status values in results. */
+            /** @description Result. Always returns 200 — outcomes are carried by the per-transaction status values in results. */
             200: {
                 headers: {
                     [name: string]: unknown;

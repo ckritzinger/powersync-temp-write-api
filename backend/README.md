@@ -17,11 +17,7 @@ The endpoints are as follows:
 
 3. POST `/api/data`
 
-   - Accepts a batch of CRUD operations (PUT/PATCH/DELETE) from the client.
-
-4. POST `/api/data/batch`
-
-   - Accepts a **transaction batch** — an ordered run of whole transactions from the head of the client's upload queue — and applies each one in its own database transaction, in order.
+   - Accepts a **transaction batch** — an ordered run of whole transactions from the head of the client's upload queue — and applies each one in its own database transaction, in order. This is the only write endpoint: a client with a single transaction to upload sends a transaction batch of one.
    - Stops at the first failure. The response holds one result per transaction sent, in the same order and always the same length as the request, so the client never has to infer which transactions were applied. Transactions the batch never reached are reported as `not_attempted`.
    - Optional `on_fatal_error` in the request body: `stop` (the default) ends the batch at a fatal failure; `skip` drops that transaction and carries on, so a queue blocked by a poison operation can still drain. The skipped transaction's result still reports `fatal_error` with the error classification, so the client can record that it discarded the transaction.
    - `skip` applies to **fatal failures only**. A retryable failure always ends the batch.

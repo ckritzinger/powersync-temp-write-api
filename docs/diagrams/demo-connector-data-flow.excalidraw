@@ -209,15 +209,26 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 3 },
+      "roundness": {
+        "type": 3
+      },
       "seed": 2001,
       "version": 1,
       "versionNonce": 2001,
       "isDeleted": false,
       "boundElements": [
-        { "id": "text-uploaddata", "type": "text" },
-        { "id": "arrow-1-2", "type": "arrow" },
-        { "id": "arrow-error", "type": "arrow" }
+        {
+          "id": "text-uploaddata",
+          "type": "text"
+        },
+        {
+          "id": "arrow-1-2",
+          "type": "arrow"
+        },
+        {
+          "id": "arrow-error",
+          "type": "arrow"
+        }
       ],
       "updated": 1730000000000,
       "link": null,
@@ -276,15 +287,26 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 3 },
+      "roundness": {
+        "type": 3
+      },
       "seed": 2002,
       "version": 1,
       "versionNonce": 2002,
       "isDeleted": false,
       "boundElements": [
-        { "id": "text-processtxn", "type": "text" },
-        { "id": "arrow-1-2", "type": "arrow" },
-        { "id": "arrow-2-3", "type": "arrow" }
+        {
+          "id": "text-processtxn",
+          "type": "text"
+        },
+        {
+          "id": "arrow-1-2",
+          "type": "arrow"
+        },
+        {
+          "id": "arrow-2-3",
+          "type": "arrow"
+        }
       ],
       "updated": 1730000000000,
       "link": null,
@@ -318,11 +340,11 @@
       "locked": false,
       "fontSize": 14,
       "fontFamily": 1,
-      "text": "WriteAPIClient.processTransaction(txn)\n\nmaps CrudTransaction →\nCrudTransaction_API\n\nWriteAPIClient.ts:59",
+      "text": "WriteAPIClient.processTransactionBatch(batch)\n\nmaps CrudTransaction[] \u2192\nTransactionBatch_API\n\nWriteAPIClient.ts:59",
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "box-processtxn",
-      "originalText": "WriteAPIClient.processTransaction(txn)\n\nmaps CrudTransaction →\nCrudTransaction_API\n\nWriteAPIClient.ts:59",
+      "originalText": "WriteAPIClient.processTransactionBatch(batch)\n\nmaps CrudTransaction[] \u2192\nTransactionBatch_API\n\nWriteAPIClient.ts:59",
       "lineHeight": 1.25,
       "baseline": 12
     },
@@ -343,15 +365,26 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 3 },
+      "roundness": {
+        "type": 3
+      },
       "seed": 2003,
       "version": 1,
       "versionNonce": 2003,
       "isDeleted": false,
       "boundElements": [
-        { "id": "text-posttxn", "type": "text" },
-        { "id": "arrow-2-3", "type": "arrow" },
-        { "id": "arrow-3-4", "type": "arrow" }
+        {
+          "id": "text-posttxn",
+          "type": "text"
+        },
+        {
+          "id": "arrow-2-3",
+          "type": "arrow"
+        },
+        {
+          "id": "arrow-3-4",
+          "type": "arrow"
+        }
       ],
       "updated": 1730000000000,
       "link": null,
@@ -385,11 +418,11 @@
       "locked": false,
       "fontSize": 14,
       "fontFamily": 1,
-      "text": "OpenAPITransport.postTransaction(body)\n\nopenapi-fetch · JSON POST\n\nOpenAPITransport.ts:15",
+      "text": "OpenAPITransport.postTransactionBatch(body)\n\nopenapi-fetch \u00b7 JSON POST\n\nOpenAPITransport.ts:15",
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "box-posttxn",
-      "originalText": "OpenAPITransport.postTransaction(body)\n\nopenapi-fetch · JSON POST\n\nOpenAPITransport.ts:15",
+      "originalText": "OpenAPITransport.postTransactionBatch(body)\n\nopenapi-fetch \u00b7 JSON POST\n\nOpenAPITransport.ts:15",
       "lineHeight": 1.25,
       "baseline": 12
     },
@@ -410,15 +443,26 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 3 },
+      "roundness": {
+        "type": 3
+      },
       "seed": 2004,
       "version": 1,
       "versionNonce": 2004,
       "isDeleted": false,
       "boundElements": [
-        { "id": "text-middleware", "type": "text" },
-        { "id": "arrow-3-4", "type": "arrow" },
-        { "id": "arrow-4-5", "type": "arrow" }
+        {
+          "id": "text-middleware",
+          "type": "text"
+        },
+        {
+          "id": "arrow-3-4",
+          "type": "arrow"
+        },
+        {
+          "id": "arrow-4-5",
+          "type": "arrow"
+        }
       ],
       "updated": 1730000000000,
       "link": null,
@@ -452,11 +496,11 @@
       "locked": false,
       "fontSize": 14,
       "fontFamily": 1,
-      "text": "Express middleware\n\nexpress.json → logging →\nCORS → OpenAPI validate\n\nbackend/app.ts",
+      "text": "Express middleware\n\nexpress.json \u2192 logging \u2192\nCORS \u2192 OpenAPI validate\n\nbackend/app.ts",
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "box-middleware",
-      "originalText": "Express middleware\n\nexpress.json → logging →\nCORS → OpenAPI validate\n\nbackend/app.ts",
+      "originalText": "Express middleware\n\nexpress.json \u2192 logging \u2192\nCORS \u2192 OpenAPI validate\n\nbackend/app.ts",
       "lineHeight": 1.25,
       "baseline": 12
     },
@@ -477,16 +521,30 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 3 },
+      "roundness": {
+        "type": 3
+      },
       "seed": 2005,
       "version": 1,
       "versionNonce": 2005,
       "isDeleted": false,
       "boundElements": [
-        { "id": "text-handler", "type": "text" },
-        { "id": "arrow-4-5", "type": "arrow" },
-        { "id": "arrow-5-6", "type": "arrow" },
-        { "id": "arrow-error", "type": "arrow" }
+        {
+          "id": "text-handler",
+          "type": "text"
+        },
+        {
+          "id": "arrow-4-5",
+          "type": "arrow"
+        },
+        {
+          "id": "arrow-5-6",
+          "type": "arrow"
+        },
+        {
+          "id": "arrow-error",
+          "type": "arrow"
+        }
       ],
       "updated": 1730000000000,
       "link": null,
@@ -520,11 +578,11 @@
       "locked": false,
       "fontSize": 14,
       "fontFamily": 1,
-      "text": "POST /api/data handler\n\ncalls updateBatch(req.body.crud)\nmaps thrown errors → response\n\nbackend/src/api/data.ts:22",
+      "text": "POST /api/data handler\n\ncalls updateBatch(req.body.crud)\nmaps thrown errors \u2192 response\n\nbackend/src/api/data.ts:22",
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "box-handler",
-      "originalText": "POST /api/data handler\n\ncalls updateBatch(req.body.crud)\nmaps thrown errors → response\n\nbackend/src/api/data.ts:22",
+      "originalText": "POST /api/data handler\n\ncalls updateBatch(req.body.crud)\nmaps thrown errors \u2192 response\n\nbackend/src/api/data.ts:22",
       "lineHeight": 1.25,
       "baseline": 12
     },
@@ -545,15 +603,26 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 3 },
+      "roundness": {
+        "type": 3
+      },
       "seed": 2006,
       "version": 1,
       "versionNonce": 2006,
       "isDeleted": false,
       "boundElements": [
-        { "id": "text-updatebatch", "type": "text" },
-        { "id": "arrow-5-6", "type": "arrow" },
-        { "id": "arrow-6-7", "type": "arrow" }
+        {
+          "id": "text-updatebatch",
+          "type": "text"
+        },
+        {
+          "id": "arrow-5-6",
+          "type": "arrow"
+        },
+        {
+          "id": "arrow-6-7",
+          "type": "arrow"
+        }
       ],
       "updated": 1730000000000,
       "link": null,
@@ -587,11 +656,11 @@
       "locked": false,
       "fontSize": 14,
       "fontFamily": 1,
-      "text": "PostgresPersister.updateBatch(batch)\n\nBEGIN  →  for each CrudEntry:\n   defaultMapper(op)\n   INSERT ON CONFLICT / UPDATE / DELETE\nCOMMIT  /  ROLLBACK on error\n\npostgres-persistance.ts:32",
+      "text": "PostgresPersister.updateBatch(batch)\n\nBEGIN  \u2192  for each CrudEntry:\n   defaultMapper(op)\n   INSERT ON CONFLICT / UPDATE / DELETE\nCOMMIT  /  ROLLBACK on error\n\npostgres-persistance.ts:32",
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "box-updatebatch",
-      "originalText": "PostgresPersister.updateBatch(batch)\n\nBEGIN  →  for each CrudEntry:\n   defaultMapper(op)\n   INSERT ON CONFLICT / UPDATE / DELETE\nCOMMIT  /  ROLLBACK on error\n\npostgres-persistance.ts:32",
+      "originalText": "PostgresPersister.updateBatch(batch)\n\nBEGIN  \u2192  for each CrudEntry:\n   defaultMapper(op)\n   INSERT ON CONFLICT / UPDATE / DELETE\nCOMMIT  /  ROLLBACK on error\n\npostgres-persistance.ts:32",
       "lineHeight": 1.25,
       "baseline": 12
     },
@@ -612,13 +681,18 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 3 },
+      "roundness": {
+        "type": 3
+      },
       "seed": 2007,
       "version": 1,
       "versionNonce": 2007,
       "isDeleted": false,
       "boundElements": [
-        { "id": "arrow-6-7", "type": "arrow" }
+        {
+          "id": "arrow-6-7",
+          "type": "arrow"
+        }
       ],
       "updated": 1730000000000,
       "link": null,
@@ -677,13 +751,18 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 3 },
+      "roundness": {
+        "type": 3
+      },
       "seed": 2008,
       "version": 1,
       "versionNonce": 2008,
       "isDeleted": false,
       "boundElements": [
-        { "id": "text-table-lists", "type": "text" }
+        {
+          "id": "text-table-lists",
+          "type": "text"
+        }
       ],
       "updated": 1730000000000,
       "link": null,
@@ -742,13 +821,18 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 3 },
+      "roundness": {
+        "type": 3
+      },
       "seed": 2009,
       "version": 1,
       "versionNonce": 2009,
       "isDeleted": false,
       "boundElements": [
-        { "id": "text-table-todos", "type": "text" }
+        {
+          "id": "text-table-todos",
+          "type": "text"
+        }
       ],
       "updated": 1730000000000,
       "link": null,
@@ -843,7 +927,9 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 2 },
+      "roundness": {
+        "type": 2
+      },
       "seed": 4001,
       "version": 1,
       "versionNonce": 4001,
@@ -852,10 +938,27 @@
       "updated": 1730000000000,
       "link": null,
       "locked": false,
-      "points": [[0, 0], [0, 40]],
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          40
+        ]
+      ],
       "lastCommittedPoint": null,
-      "startBinding": { "elementId": "box-uploaddata", "focus": 0, "gap": 4 },
-      "endBinding": { "elementId": "box-processtxn", "focus": 0, "gap": 4 },
+      "startBinding": {
+        "elementId": "box-uploaddata",
+        "focus": 0,
+        "gap": 4
+      },
+      "endBinding": {
+        "elementId": "box-processtxn",
+        "focus": 0,
+        "gap": 4
+      },
       "startArrowhead": null,
       "endArrowhead": "arrow"
     },
@@ -876,7 +979,9 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 2 },
+      "roundness": {
+        "type": 2
+      },
       "seed": 4002,
       "version": 1,
       "versionNonce": 4002,
@@ -885,10 +990,27 @@
       "updated": 1730000000000,
       "link": null,
       "locked": false,
-      "points": [[0, 0], [0, 40]],
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          40
+        ]
+      ],
       "lastCommittedPoint": null,
-      "startBinding": { "elementId": "box-processtxn", "focus": 0, "gap": 4 },
-      "endBinding": { "elementId": "box-posttxn", "focus": 0, "gap": 4 },
+      "startBinding": {
+        "elementId": "box-processtxn",
+        "focus": 0,
+        "gap": 4
+      },
+      "endBinding": {
+        "elementId": "box-posttxn",
+        "focus": 0,
+        "gap": 4
+      },
       "startArrowhead": null,
       "endArrowhead": "arrow"
     },
@@ -909,21 +1031,43 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 2 },
+      "roundness": {
+        "type": 2
+      },
       "seed": 4003,
       "version": 1,
       "versionNonce": 4003,
       "isDeleted": false,
       "boundElements": [
-        { "id": "label-arrow-3-4", "type": "text" }
+        {
+          "id": "label-arrow-3-4",
+          "type": "text"
+        }
       ],
       "updated": 1730000000000,
       "link": null,
       "locked": false,
-      "points": [[0, 0], [120, 0]],
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          120,
+          0
+        ]
+      ],
       "lastCommittedPoint": null,
-      "startBinding": { "elementId": "box-posttxn", "focus": 0, "gap": 4 },
-      "endBinding": { "elementId": "box-middleware", "focus": 0, "gap": 4 },
+      "startBinding": {
+        "elementId": "box-posttxn",
+        "focus": 0,
+        "gap": 4
+      },
+      "endBinding": {
+        "elementId": "box-middleware",
+        "focus": 0,
+        "gap": 4
+      },
       "startArrowhead": null,
       "endArrowhead": "arrow"
     },
@@ -980,7 +1124,9 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 2 },
+      "roundness": {
+        "type": 2
+      },
       "seed": 4004,
       "version": 1,
       "versionNonce": 4004,
@@ -989,10 +1135,27 @@
       "updated": 1730000000000,
       "link": null,
       "locked": false,
-      "points": [[0, 0], [0, 40]],
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          40
+        ]
+      ],
       "lastCommittedPoint": null,
-      "startBinding": { "elementId": "box-middleware", "focus": 0, "gap": 4 },
-      "endBinding": { "elementId": "box-handler", "focus": 0, "gap": 4 },
+      "startBinding": {
+        "elementId": "box-middleware",
+        "focus": 0,
+        "gap": 4
+      },
+      "endBinding": {
+        "elementId": "box-handler",
+        "focus": 0,
+        "gap": 4
+      },
       "startArrowhead": null,
       "endArrowhead": "arrow"
     },
@@ -1013,7 +1176,9 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 2 },
+      "roundness": {
+        "type": 2
+      },
       "seed": 4005,
       "version": 1,
       "versionNonce": 4005,
@@ -1022,10 +1187,27 @@
       "updated": 1730000000000,
       "link": null,
       "locked": false,
-      "points": [[0, 0], [0, 40]],
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          40
+        ]
+      ],
       "lastCommittedPoint": null,
-      "startBinding": { "elementId": "box-handler", "focus": 0, "gap": 4 },
-      "endBinding": { "elementId": "box-updatebatch", "focus": 0, "gap": 4 },
+      "startBinding": {
+        "elementId": "box-handler",
+        "focus": 0,
+        "gap": 4
+      },
+      "endBinding": {
+        "elementId": "box-updatebatch",
+        "focus": 0,
+        "gap": 4
+      },
       "startArrowhead": null,
       "endArrowhead": "arrow"
     },
@@ -1046,21 +1228,43 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 2 },
+      "roundness": {
+        "type": 2
+      },
       "seed": 4006,
       "version": 1,
       "versionNonce": 4006,
       "isDeleted": false,
       "boundElements": [
-        { "id": "label-arrow-6-7", "type": "text" }
+        {
+          "id": "label-arrow-6-7",
+          "type": "text"
+        }
       ],
       "updated": 1730000000000,
       "link": null,
       "locked": false,
-      "points": [[0, 0], [120, 0]],
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          120,
+          0
+        ]
+      ],
       "lastCommittedPoint": null,
-      "startBinding": { "elementId": "box-updatebatch", "focus": 0, "gap": 4 },
-      "endBinding": { "elementId": "box-postgres-db", "focus": 0, "gap": 4 },
+      "startBinding": {
+        "elementId": "box-updatebatch",
+        "focus": 0,
+        "gap": 4
+      },
+      "endBinding": {
+        "elementId": "box-postgres-db",
+        "focus": 0,
+        "gap": 4
+      },
       "startArrowhead": null,
       "endArrowhead": "arrow"
     },
@@ -1092,11 +1296,11 @@
       "locked": false,
       "fontSize": 12,
       "fontFamily": 1,
-      "text": "pg Pool · raw SQL\n(BEGIN / COMMIT)",
+      "text": "pg Pool \u00b7 raw SQL\n(BEGIN / COMMIT)",
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "arrow-6-7",
-      "originalText": "pg Pool · raw SQL\n(BEGIN / COMMIT)",
+      "originalText": "pg Pool \u00b7 raw SQL\n(BEGIN / COMMIT)",
       "lineHeight": 1.25,
       "baseline": 10
     },
@@ -1117,21 +1321,51 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": { "type": 2 },
+      "roundness": {
+        "type": 2
+      },
       "seed": 4007,
       "version": 1,
       "versionNonce": 4007,
       "isDeleted": false,
       "boundElements": [
-        { "id": "label-arrow-error", "type": "text" }
+        {
+          "id": "label-arrow-error",
+          "type": "text"
+        }
       ],
       "updated": 1730000000000,
       "link": null,
       "locked": false,
-      "points": [[0, 0], [-70, 0], [-70, -510], [-120, -510]],
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          -70,
+          0
+        ],
+        [
+          -70,
+          -510
+        ],
+        [
+          -120,
+          -510
+        ]
+      ],
       "lastCommittedPoint": null,
-      "startBinding": { "elementId": "box-handler", "focus": 0, "gap": 4 },
-      "endBinding": { "elementId": "box-uploaddata", "focus": 0, "gap": 4 },
+      "startBinding": {
+        "elementId": "box-handler",
+        "focus": 0,
+        "gap": 4
+      },
+      "endBinding": {
+        "elementId": "box-uploaddata",
+        "focus": 0,
+        "gap": 4
+      },
       "startArrowhead": null,
       "endArrowhead": "arrow"
     },
@@ -1163,11 +1397,11 @@
       "locked": false,
       "fontSize": 12,
       "fontFamily": 1,
-      "text": "RetryableError → retry\nFatalOperationError → discard",
+      "text": "RetryableError \u2192 retry\nFatalOperationError \u2192 discard",
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "arrow-error",
-      "originalText": "RetryableError → retry\nFatalOperationError → discard",
+      "originalText": "RetryableError \u2192 retry\nFatalOperationError \u2192 discard",
       "lineHeight": 1.25,
       "baseline": 10
     }

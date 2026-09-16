@@ -16,12 +16,17 @@ export type BatchingConfig = {
 export type DemoConfig = {
   backendUrl: string;
   powersyncUrl: string;
-  /** `null` uploads one transaction per attempt, which is the default. */
-  batching: BatchingConfig | null;
+  batching: BatchingConfig;
 };
 
 const USER_ID_STORAGE_KEY = 'ps_user_id';
 
+/**
+ * Batching is not a mode — there is one upload path and one endpoint, and these only bound how much
+ * of the queue it takes per request. Set VITE_BATCH_MAX_TRANSACTIONS=1 for one transaction per
+ * round-trip, which is what the demo did before the single-transaction endpoint was removed.
+ */
+const DEFAULT_MAX_TRANSACTIONS = 10;
 const DEFAULT_MAX_OPERATIONS = 1000;
 
 /**
@@ -46,17 +51,13 @@ export const completionBoundary = (results: Pick<TransactionResult, 'status'>[])
   return boundary;
 };
 
-const readBatchingConfig = (): BatchingConfig | null => {
+const readBatchingConfig = (): BatchingConfig => {
   const maxTransactions = Number(import.meta.env.VITE_BATCH_MAX_TRANSACTIONS ?? '');
-
-  if (!Number.isInteger(maxTransactions) || maxTransactions < 1) {
-    return null;
-  }
-
   const maxOperations = Number(import.meta.env.VITE_BATCH_MAX_OPERATIONS ?? '');
 
   return {
-    maxTransactions,
+    maxTransactions:
+      Number.isInteger(maxTransactions) && maxTransactions > 0 ? maxTransactions : DEFAULT_MAX_TRANSACTIONS,
     maxOperations: Number.isInteger(maxOperations) && maxOperations > 0 ? maxOperations : DEFAULT_MAX_OPERATIONS,
     onFatalError: import.meta.env.VITE_BATCH_ON_FATAL_ERROR === 'skip' ? 'skip' : 'stop'
   };
@@ -135,50 +136,12 @@ export class DemoConnector implements PowerSyncBackendConnector {
     return this._writeClient;
   }
 
-  async uploadData(database: AbstractPowerSyncDatabase): Promise<void> {
-    if (this.config.batching) {
-      return this.uploadTransactionBatch(database, this.config.batching);
-    }
-
-    return this.uploadSingleTransaction(database);
-  }
-
   /**
-   * Upload one transaction per attempt. This is the default path and is unchanged by batching.
+   * Take a run of whole transactions from the head of the upload queue and upload them in one
+   * request. A single queued transaction is a batch of one — there is no separate path for it.
    */
-  private async uploadSingleTransaction(database: AbstractPowerSyncDatabase): Promise<void> {
-    const transaction = await database.getNextCrudTransaction();
-    if (!transaction) return;
-
-    this._clientId = await database.getClientId();
-    const writeClient = await this.getWriteClient(database);
-    const result = await writeClient.processTransaction(transaction);
-
-    switch (result.status) {
-      case 'success':
-        await transaction.complete();
-        break;
-      case 'fatal_error':
-        // Instead of blocking the queue with these errors,
-        // discard the (rest of the) transaction.
-        //
-        // Note that these errors typically indicate a bug in the application.
-        // If protecting against data loss is important, save the failing records
-        // elsewhere instead of discarding, and/or notify the user.
-        console.error('Fatal error:', result.failedOperation?.error_code, result.message);
-        await transaction.complete();
-        break;
-      case 'retryable_error':
-        // Error is retryable - e.g. network error or temporary server error.
-        // Throwing an error here causes this call to be retried after a delay.
-        throw new Error(result.message ?? 'Retryable error');
-      default:
-        //`not_attempted` only ever describes an entry in a batch result
-        throw new Error(`Unexpected upload status: ${result.status}`);
-    }
-  }
-
-  private async uploadTransactionBatch(database: AbstractPowerSyncDatabase, batching: BatchingConfig): Promise<void> {
+  async uploadData(database: AbstractPowerSyncDatabase): Promise<void> {
+    const batching = this.config.batching;
     const batch: CrudTransaction[] = [];
     let operations = 0;
 

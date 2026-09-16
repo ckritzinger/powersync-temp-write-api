@@ -33,29 +33,11 @@ const applyTransaction = async (crud: CrudEntry[]): Promise<TransactionResult> =
 };
 
 /**
- * Handle a CrudTransaction.
- */
-router.post(
-  '/',
-  async (
-    req: Request<{}, OpResponse<'postCrudTransaction'>, OpBody<'postCrudTransaction'>>,
-    res: Response<OpResponse<'postCrudTransaction'>>
-  ) => {
-    // Verified identity from the token
-    console.log(`Write authenticated as ${req.auth?.sub}`);
-
-    const result = await applyTransaction(req.body.crud);
-
-    // The success message is this endpoint's alone — batch results carry a bare status per entry.
-    res
-      .status(200)
-      .send(result.status === 'success' ? { status: 'success', message: 'Transaction completed' } : result);
-  }
-);
-
-/**
  * Handle a TransactionBatch: apply each transaction in its own database transaction, in
  * upload-queue order.
+ *
+ * This is the only write endpoint. A client uploading a single transaction sends a batch of one —
+ * there is no separate single-transaction path, on the wire or in here.
  *
  * Stops at the first failure, unless `on_fatal_error` is `skip`, in which case a fatally failed
  * transaction is dropped and the batch continues. A retryable failure always ends the batch.
@@ -65,13 +47,13 @@ router.post(
  * `not_attempted` rather than omitted.
  */
 router.post(
-  '/batch',
+  '/',
   async (
     req: Request<{}, OpResponse<'postTransactionBatch'>, OpBody<'postTransactionBatch'>>,
     res: Response<OpResponse<'postTransactionBatch'>>
   ) => {
     // Verified identity from the token
-    console.log(`Batch write authenticated as ${req.auth?.sub}`);
+    console.log(`Write authenticated as ${req.auth?.sub}`);
 
     // Defaulted here rather than relying on the validator injecting the schema default, so this
     // handler reads correctly on its own.

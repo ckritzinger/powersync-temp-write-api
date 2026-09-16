@@ -20,14 +20,9 @@ _Avoid_: CRUD queue, outbox, pending changes
 
 ### Units of upload
 
-**Batch**:
-A bounded window over the head of the upload queue, taken without regard to transaction boundaries. A batch may hold operations from several transactions, and one transaction may span several batches.
-_Avoid_: CRUD batch, chunk, page
-
 **Transaction Batch**:
-An ordered run of whole transactions taken from the head of the upload queue. Unlike a batch, it never splits a transaction.
+An ordered run of whole transactions taken from the head of the upload queue. It never splits a transaction. The only unit of upload: a client with one transaction to send uploads a transaction batch of one, not something else.
 _Avoid_: multi-transaction batch, transaction group
-_Note_: the endpoint carrying these is named `/api/data/batch`, which predates the distinction above. The name says batch; the payload is a transaction batch.
 
 ### Authorising a write
 
@@ -70,3 +65,7 @@ _Avoid_: bad record, dead letter, stuck write
 **Mutator**:
 A named server-side procedure invoked with arguments, as an alternative to uploading row-level operations. Referenced here only as a shape to borrow from; the write API demo uploads operations, not mutator calls.
 _Avoid_: RPC, command, server function
+
+**Batch**:
+A bounded window over the head of the upload queue taken without regard to transaction boundaries, so that one transaction could span several requests. Named only to rule it out: the write API never splits a transaction, and the word batch on its own always means a transaction batch here.
+_Avoid_: CRUD batch, chunk, page

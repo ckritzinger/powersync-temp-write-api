@@ -11,47 +11,16 @@ servers:
 paths:
   /api/data:
     post:
-      operationId: postCrudTransaction
-      summary: Apply a transaction of CRUD operations
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CrudTransaction"
-      responses:
-        "200":
-          description: >
-            Transaction result. Always returns 200 — the outcome 
-            is determined by the status field in the response body.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TransactionResponse"
-        "401":
-          description: Missing or invalid token
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/MessageResponse"
-        "500":
-          description: Unexpected server error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/MessageResponse"
-
-  /api/data/batch:
-    post:
       operationId: postTransactionBatch
-      summary: Apply a batch of transactions, each in its own database transaction
+      summary: Apply one or more transactions, each in its own database transaction
       security:
         - bearerAuth: []
       description: >
-        Applies each transaction in the batch in order, each in its own database
-        transaction. Stops at the first failure of any kind.
+        Applies each transaction in order, each in its own database transaction.
+        Stops at the first failure of any kind.
+
+        One transaction is the degenerate case, not a separate endpoint: a client
+        uploading a single transaction sends a transactions array of length one.
 
         Results holds one entry per transaction sent, in the same order and
         always the same length as the request. Entries are matched to
@@ -65,7 +34,7 @@ paths:
       responses:
         "200":
           description: >
-            Batch result. Always returns 200 — outcomes are carried by the
+            Result. Always returns 200 — outcomes are carried by the
             per-transaction status values in results.
           content:
             application/json:
@@ -222,7 +191,9 @@ components:
             - $ref: "#/components/schemas/FailedOperation"
         message:
           type: string
-          description: Human-readable summary for logging/debugging.
+          description: >
+            Human-readable detail for logging/debugging. Present on failures;
+            a successful transaction carries a bare status.
 
     FailedOperation:
       type: object
