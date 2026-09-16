@@ -14,3 +14,8 @@ export class FatalOperationError extends Error {
     super(message);
   }
 }
+
+export const messageOf = (error: unknown): string => {
+  const message = (error as { message?: unknown })?.message;
+  return typeof message === 'string' ? message : String(error);
+};

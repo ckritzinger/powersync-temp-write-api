@@ -43,6 +43,47 @@ paths:
               schema:
                 $ref: "#/components/schemas/MessageResponse"
 
+  /api/data/batch:
+    post:
+      operationId: postTransactionBatch
+      summary: Apply a batch of transactions, each in its own database transaction
+      description: >
+        Applies each transaction in the batch in order, each in its own database
+        transaction. Stops at the first failure of any kind.
+
+        Results holds one entry per transaction sent, in the same order and
+        always the same length as the request. Entries are matched to
+        transactions positionally.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransactionBatch"
+      responses:
+        "200":
+          description: >
+            Batch result. Always returns 200 — outcomes are carried by the
+            per-transaction status values in results.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionBatchResponse"
+        "400":
+          description: >
+            Request body failed validation, e.g. an empty batch or more
+            transactions than the declared maximum.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "500":
+          description: Unexpected server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -69,15 +110,10 @@ components:
     CrudEntry:
       type: object
       required:
-        - client_id
         - id
         - op
         - table
       properties:
-        client_id:
-          type: integer
-          format: int64
-          description: Auto-incrementing client-side id
         id:
           type: string
           description: ID of the changed row
@@ -107,19 +143,64 @@ components:
           type: string
           description: Client-side metadata (when trackMetadata is enabled)
 
+    TransactionBatch:
+      type: object
+      required:
+        - transactions
+      properties:
+        transactions:
+          type: array
+          minItems: 1
+          maxItems: 50
+          description: >
+            Whole transactions to apply, in upload-queue order. A transaction is
+            never split across batches.
+          items:
+            $ref: "#/components/schemas/CrudTransaction"
+        on_fatal_error:
+          type: string
+          enum: [stop, skip]
+          default: stop
+          description: >
+            What to do when a transaction fails fatally.
+
+            stop (default): the batch ends; every transaction after it is
+              reported as not_attempted.
+            skip: the failing transaction is dropped and the batch continues.
+              Its result still reports fatal_error with the error
+              classification, so the client can record that it discarded the
+              transaction.
+
+            Applies to fatal failures only. A retryable failure always ends the
+            batch.
+
+    TransactionBatchResponse:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          description: >
+            One result per transaction sent, in the same order. Always the same
+            length as the transactions array in the request.
+          items:
+            $ref: "#/components/schemas/TransactionResponse"
+
     TransactionResponse:
       type: object
       required: [status]
       properties:
         status:
           type: string
-          enum: [success, retryable_error, fatal_error]
+          enum: [success, retryable_error, fatal_error, not_attempted]
           description: >
             success: entire transaction persisted, safe to complete.
             retryable_error: transient failure, transaction rolled back,
               client should retry.
             fatal_error: transaction rolled back due to a non-recoverable
               issue — see failed_operation for details.
+            not_attempted: the batch ended before this transaction was reached,
+              so nothing was applied.
         retry_after_ms:
           type: integer
           description: >
@@ -142,9 +223,13 @@ components:
         error_code:
           type: string
           description: >
-            Machine-readable classification, e.g. CONFLICT,
-            SCHEMA_MISMATCH, VALIDATION_ERROR, UNIQUE_VIOLATION,
-            FOREIGN_KEY_VIOLATION.
+            Machine-readable classification. Open-ended and backend-specific;
+            the values emitted today are NOT_NULL_VIOLATION,
+            UNIQUE_VIOLATION, FOREIGN_KEY_VIOLATION, CHECK_VIOLATION,
+            CONSTRAINT_VIOLATION (a constraint the backend could not identify
+            more precisely), INVALID_DATA (a value that cannot be stored in the
+            column, e.g. malformed or out of range), SCHEMA_MISMATCH and
+            DOCUMENT_VALIDATION_FAILURE.
         message:
           type: string
           description: Human-readable error detail.

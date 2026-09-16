@@ -1,7 +1,7 @@
 import { URL } from 'url';
 import PG from 'pg';
 import type { Persister, CrudEntry } from '../../types.js';
-import { RetryableError, FatalOperationError } from '../../errors.js';
+import { classifyPostgresError } from './postgres-errors.js';
 import type { EntryMapper } from '../../mapping/types.js';
 import { defaultMapper } from '../../mapping/default.js';
 
@@ -101,16 +101,7 @@ export const createPostgresPersister = (uri: string, mapper: EntryMapper = defau
         await client.query('COMMIT');
       } catch (e) {
         await client.query('ROLLBACK');
-        const err = e as Error & { code?: string };
-        const code = err.code ?? '';
-        if (code === '23505') {
-          throw new FatalOperationError('UNIQUE_VIOLATION', err.message);
-        } else if (code === '23503') {
-          throw new FatalOperationError('FOREIGN_KEY_VIOLATION', err.message);
-        } else if (code.startsWith('42')) {
-          throw new FatalOperationError('SCHEMA_MISMATCH', err.message);
-        }
-        throw new RetryableError(err.message);
+        throw classifyPostgresError(e);
       } finally {
         client.release();
       }

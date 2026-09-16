@@ -1,6 +1,6 @@
 import mysql from 'mysql2/promise';
 import type { Persister, CrudEntry } from '../../types.js';
-import { RetryableError, FatalOperationError } from '../../errors.js';
+import { classifyMySQLError } from './mysql-errors.js';
 import type { RowDataPacket } from 'mysql2/promise';
 import type { EntryMapper } from '../../mapping/types.js';
 import { defaultMapper } from '../../mapping/default.js';
@@ -72,14 +72,7 @@ export const createMySQLPersister = (uri: string, mapper: EntryMapper = defaultM
         await connection.commit();
       } catch (e) {
         await connection.rollback();
-        const err = e as Error & { errno?: number };
-        const errno = err.errno ?? 0;
-        if (errno === 1062) {
-          throw new FatalOperationError('UNIQUE_VIOLATION', err.message);
-        } else if (errno === 1452) {
-          throw new FatalOperationError('FOREIGN_KEY_VIOLATION', err.message);
-        }
-        throw new RetryableError(err.message);
+        throw classifyMySQLError(e);
       } finally {
         connection.release();
       }

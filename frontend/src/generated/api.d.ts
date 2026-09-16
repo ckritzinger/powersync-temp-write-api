@@ -21,6 +21,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/data/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply a batch of transactions, each in its own database transaction
+         * @description Applies each transaction in the batch in order, each in its own database transaction. Stops at the first failure of any kind.
+         *     Results holds one entry per transaction sent, in the same order and always the same length as the request. Entries are matched to transactions positionally.
+         */
+        post: operations["postTransactionBatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -34,11 +55,6 @@ export interface components {
             transaction_id?: number;
         };
         CrudEntry: {
-            /**
-             * Format: int64
-             * @description Auto-incrementing client-side id
-             */
-            client_id: number;
             /** @description ID of the changed row */
             id: string;
             /**
@@ -64,15 +80,39 @@ export interface components {
             /** @description Client-side metadata (when trackMetadata is enabled) */
             metadata?: string;
         };
+        TransactionBatch: {
+            /** @description Whole transactions to apply, in upload-queue order. A transaction is never split across batches. */
+            transactions: components["schemas"]["CrudTransaction"][];
+            /**
+             * @description What to do when a transaction fails fatally.
+             *     stop (default): the batch ends; every transaction after it is
+             *       reported as not_attempted.
+             *     skip: the failing transaction is dropped and the batch continues.
+             *       Its result still reports fatal_error with the error
+             *       classification, so the client can record that it discarded the
+             *       transaction.
+             *
+             *     Applies to fatal failures only. A retryable failure always ends the batch.
+             * @default stop
+             * @enum {string}
+             */
+            on_fatal_error: "stop" | "skip";
+        };
+        TransactionBatchResponse: {
+            /** @description One result per transaction sent, in the same order. Always the same length as the transactions array in the request. */
+            results: components["schemas"]["TransactionResponse"][];
+        };
         TransactionResponse: {
             /**
              * @description success: entire transaction persisted, safe to complete. retryable_error: transient failure, transaction rolled back,
              *       client should retry.
              *     fatal_error: transaction rolled back due to a non-recoverable
              *       issue — see failed_operation for details.
+             *     not_attempted: the batch ended before this transaction was reached,
+             *       so nothing was applied.
              * @enum {string}
              */
-            status: "success" | "retryable_error" | "fatal_error";
+            status: "success" | "retryable_error" | "fatal_error" | "not_attempted";
             /** @description Suggested retry delay in ms. Only meaningful for retryable_error. */
             retry_after_ms?: number;
             /** @description Present when status is fatal_error. Identifies what caused the rollback. */
@@ -81,7 +121,7 @@ export interface components {
             message?: string;
         };
         FailedOperation: {
-            /** @description Machine-readable classification, e.g. CONFLICT, SCHEMA_MISMATCH, VALIDATION_ERROR, UNIQUE_VIOLATION, FOREIGN_KEY_VIOLATION. */
+            /** @description Machine-readable classification. Open-ended and backend-specific; the values emitted today are NOT_NULL_VIOLATION, UNIQUE_VIOLATION, FOREIGN_KEY_VIOLATION, CHECK_VIOLATION, CONSTRAINT_VIOLATION (a constraint the backend could not identify more precisely), INVALID_DATA (a value that cannot be stored in the column, e.g. malformed or out of range), SCHEMA_MISMATCH and DOCUMENT_VALIDATION_FAILURE. */
             error_code: string;
             /** @description Human-readable error detail. */
             message?: string;
@@ -122,6 +162,48 @@ export interface operations {
             };
             /** @description Missing or invalid token */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageResponse"];
+                };
+            };
+        };
+    };
+    postTransactionBatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransactionBatch"];
+            };
+        };
+        responses: {
+            /** @description Batch result. Always returns 200 — outcomes are carried by the per-transaction status values in results. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransactionBatchResponse"];
+                };
+            };
+            /** @description Request body failed validation, e.g. an empty batch or more transactions than the declared maximum. */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };

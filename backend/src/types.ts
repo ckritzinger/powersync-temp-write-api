@@ -4,6 +4,8 @@ import type { EntryMapper } from './mapping/types.js';
 export type CrudEntry = components['schemas']['CrudEntry'];
 export type OpType = CrudEntry['op'];
 
+export type TransactionResult = components['schemas']['TransactionResponse'];
+
 /** Extract the JSON request body type for a given operation */
 export type OpBody<Op extends keyof operations> = operations[Op] extends {
   requestBody: { content: { 'application/json': infer B } };

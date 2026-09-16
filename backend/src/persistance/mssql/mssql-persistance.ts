@@ -1,7 +1,7 @@
 import { URL } from 'url';
 import sql from 'mssql';
 import type { Persister, CrudEntry } from '../../types.js';
-import { RetryableError, FatalOperationError } from '../../errors.js';
+import { classifyMSSQLError } from './mssql-errors.js';
 import type { EntryMapper } from '../../mapping/types.js';
 import { defaultMapper } from '../../mapping/default.js';
 
@@ -111,14 +111,7 @@ export const createMSSQLPersister = async (uri: string, mapper: EntryMapper = de
         await transaction.commit();
       } catch (e) {
         await transaction.rollback();
-        const err = e as Error & { number?: number };
-        const num = err.number ?? 0;
-        if (num === 2627 || num === 2601) {
-          throw new FatalOperationError('UNIQUE_VIOLATION', err.message);
-        } else if (num === 547) {
-          throw new FatalOperationError('FOREIGN_KEY_VIOLATION', err.message);
-        }
-        throw new RetryableError(err.message);
+        throw classifyMSSQLError(e);
       }
     }
   };

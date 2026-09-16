@@ -1,6 +1,6 @@
 import * as mongo from 'mongodb';
 import type { Persister, CrudEntry } from '../../types.js';
-import { RetryableError, FatalOperationError } from '../../errors.js';
+import { classifyMongoError } from './mongo-errors.js';
 import type { EntryMapper } from '../../mapping/types.js';
 import { mongoMapper } from '../../mapping/mongo.js';
 
@@ -13,8 +13,11 @@ export const createMongoPersister = async (uri: string, mapper: EntryMapper = mo
 
   const persister: Persister = {
     updateBatch: async (batch: CrudEntry[]) => {
-      // TODO: Use batches & transactions.
+      // Transactions require a replica set or sharded cluster.
+      const session = client.startSession();
       try {
+        session.startTransaction();
+
         for (const op of batch) {
           const mapped = mapper(op);
           if (mapped === null) continue;
@@ -23,21 +26,28 @@ export const createMongoPersister = async (uri: string, mapper: EntryMapper = mo
 
           if (mapped.op == 'PUT') {
             const doc: Record<string, unknown> = { _id: mapped.id, ...mapped.data };
-            await collection.insertOne(doc as mongo.OptionalId<mongo.Document>);
+            await collection.replaceOne({ _id: mapped.id as unknown as mongo.ObjectId }, doc, {
+              upsert: true,
+              session
+            });
           } else if (mapped.op == 'PATCH') {
-            await collection.updateOne({ _id: mapped.id as unknown as mongo.ObjectId }, { $set: mapped.data });
+            await collection.updateOne(
+              { _id: mapped.id as unknown as mongo.ObjectId },
+              { $set: mapped.data },
+              { session }
+            );
           } else if (mapped.op == 'DELETE') {
-            await collection.deleteOne({ _id: mapped.id as unknown as mongo.ObjectId });
+            await collection.deleteOne({ _id: mapped.id as unknown as mongo.ObjectId }, { session });
           }
         }
+
+        await session.commitTransaction();
       } catch (e) {
-        const err = e as Error & { code?: number; hasErrorLabel?: (label: string) => boolean };
-        if (err.code === 11000) {
-          throw new FatalOperationError('UNIQUE_VIOLATION', err.message);
-        } else if (err.hasErrorLabel?.('TransientTransactionError')) {
-          throw new RetryableError(err.message);
-        }
-        throw new RetryableError(err.message);
+        // A failing abort must not mask the failure that caused it.
+        await session.abortTransaction().catch(() => {});
+        throw classifyMongoError(e);
+      } finally {
+        await session.endSession();
       }
     }
   };

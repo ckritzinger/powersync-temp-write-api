@@ -19,6 +19,21 @@ The endpoints are as follows:
 
    - Accepts a batch of CRUD operations (PUT/PATCH/DELETE) from the client.
 
+4. POST `/api/data/batch`
+
+   - Accepts a **transaction batch** — an ordered run of whole transactions from the head of the client's upload queue — and applies each one in its own database transaction, in order.
+   - Stops at the first failure. The response holds one result per transaction sent, in the same order and always the same length as the request, so the client never has to infer which transactions were applied. Transactions the batch never reached are reported as `not_attempted`.
+   - Optional `on_fatal_error` in the request body: `stop` (the default) ends the batch at a fatal failure; `skip` drops that transaction and carries on, so a queue blocked by a poison operation can still drain. The skipped transaction's result still reports `fatal_error` with the error classification, so the client can record that it discarded the transaction.
+   - `skip` applies to **fatal failures only**. A retryable failure always ends the batch.
+   - The client may complete through the last result whose status is `success` or `fatal_error`. A `retryable_error` or `not_attempted` result is not completable.
+
+### Error classification
+
+Every failure is sorted into one of two kinds, in `src/persistance/classify-error.ts`:
+
+- **retryable** — the environment misbehaved (deadlock, lock timeout, connection loss, resource exhaustion). The client uploads the transaction again after a delay.
+- **fatal** — the data is wrong and can never be stored (missing required field, constraint violation, malformed or out-of-range value, schema mismatch). The client discards the transaction.
+
 ## Packages
 
 [node-postgres](https://github.com/brianc/node-postgres) is used to interact with the Postgres database when a client performs requests to the `/api/data` endpoint.
