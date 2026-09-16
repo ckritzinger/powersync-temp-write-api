@@ -146,8 +146,9 @@ Three changes that must land together:
    (specifying both is a hard error)
 3. `auto_subscribe: true` on **every** stream
 
-File renames following upstream: `config/powersync.yaml` -> `config/service.yaml`,
-`config/sync_rules.yaml` -> `config/sync-config.yaml`.
+File renames following upstream: `config/sync_rules.yaml` -> `config/sync-config.yaml` lands with
+this migration. `config/powersync.yaml` -> `config/service.yaml` lands later, with the directory
+restructure, since the mount path changes at the same time.
 
 MongoDB's rules differ by necessity, because `_id` is the primary key:
 
@@ -215,8 +216,11 @@ A full `docker compose build` path remains as the deploy-shaped reference.
    code-change loop.
 2. Four per-example READMEs covering each flavour's prerequisites and gotchas.
 
-Explicitly **not** in scope: `CONTEXT.md` updates, ADRs, `.scratch/` issues. The service image
-stays on `:latest`.
+Explicitly **not** in scope: `CONTEXT.md` updates and ADRs. The service image stays on `:latest`.
+
+The work is tracked as tickets under `.scratch/self-host/`, alongside the spec, per the repo's
+local issue-tracker convention. That directory is gitignored, so this plan is the only part of the
+design that lives in version control.
 
 ## Risks
 

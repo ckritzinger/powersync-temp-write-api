@@ -6,15 +6,16 @@
 
 ```
 write-api/
-├── docker-compose.yaml                       # Postgres + MongoDB + PowerSync
+├── docker-compose.yaml       # Postgres + MongoDB + PowerSync
 ├── config/
-│   ├── powersync.yaml                        # PowerSync service config
-│   └── sync_rules.yaml                       # Sync rules (lists + todos)
+│   ├── powersync.yaml        # PowerSync service config
+│   └── sync-config.yaml      # Sync rules (lists + todos)
 ├── init-scripts/
-│   └── setup.sql                             # DB schema + seed data
-├── powersync-nodejs-backend-todolist-demo/    # Backend (Express, port 6060)
+│   └── setup.sql             # DB schema + seed data
+├── backend/                  # Backend (Express, port 6060)
+│   ├── openapi.yaml          # Shared API contract, read by both packages
 │   └── .env
-└── demo-app/                                 # Frontend (React/Vite, port 5173)
+└── frontend/                 # Demo client (React/Vite, port 5173)
     └── .env.local
 ```
 

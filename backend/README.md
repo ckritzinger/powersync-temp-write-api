@@ -26,7 +26,8 @@ The endpoints are as follows:
 ### Error classification
 
 Every failure is sorted into one of two kinds. `src/errors.ts` defines the two, and each
-flavour maps its driver's errors onto them in `src/persistance/<flavour>/<flavour>-errors.ts`:
+supported database maps its driver's errors onto them in its own `*-errors.ts` under
+`src/persistance/`:
 
 - **retryable** — the environment misbehaved (deadlock, lock timeout, connection loss, resource exhaustion). The client uploads the transaction again after a delay.
 - **fatal** — the data is wrong and can never be stored (missing required field, constraint violation, malformed or out-of-range value, schema mismatch). The client discards the transaction.

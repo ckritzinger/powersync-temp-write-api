@@ -14,4 +14,4 @@ dist
 # Not needed at runtime.
 Dockerfile
 .dockerignore
-*.test.ts
+**/*.test.ts

@@ -27,6 +27,8 @@ app.use(
     apiSpec: path.join(__dirname, 'openapi.yaml'),
     validateRequests: true,
     validateResponses: false,
+    // Two exemptions: the root route, which is the liveness probe and deliberately absent from
+    // the contract, and the auth routes, which predate it. Everything else is validated.
     ignorePaths: /^\/$|^\/api\/auth(\/|$)/
   })
 );
