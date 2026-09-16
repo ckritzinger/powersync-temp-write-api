@@ -47,6 +47,8 @@ paths:
     post:
       operationId: postTransactionBatch
       summary: Apply a batch of transactions, each in its own database transaction
+      security:
+        - bearerAuth: []
       description: >
         Applies each transaction in the batch in order, each in its own database
         transaction. Stops at the first failure of any kind.
@@ -73,6 +75,12 @@ paths:
           description: >
             Request body failed validation, e.g. an empty batch or more
             transactions than the declared maximum.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          description: Missing or invalid token
           content:
             application/json:
               schema:

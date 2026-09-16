@@ -20,20 +20,22 @@ export function createOpenAPIClient(baseUrl: string, options: OpenAPIClientOptio
     async onRequest({ request }) {
       request.headers.set('Authorization', `Bearer ${await options.getToken()}`);
       return request;
+    },
+    // Handled here rather than per-method so every write endpoint recovers from a rejected
+    // token, including any added later. The header is attached centrally; so is the rejection.
+    async onResponse({ response }) {
+      if (response.status === 401) {
+        options.onUnauthorized?.();
+      }
+      return response;
     }
   });
 
   return {
     transport: {
       async postTransaction(body) {
-        const { data, error, response } = await client.POST('/api/data', { body });
-        if (error) {
-          if (response.status === 401) {
-            options.onUnauthorized?.();
-          }
-
-          throw new Error(`Failed to post transaction: ${error.message}`);
-        }
+        const { data, error } = await client.POST('/api/data', { body });
+        if (error) throw new Error(`Failed to post transaction: ${error.message}`);
         return data;
       },
       async postTransactionBatch(body) {

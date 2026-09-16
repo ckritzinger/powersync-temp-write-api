@@ -70,6 +70,9 @@ router.post(
     req: Request<{}, OpResponse<'postTransactionBatch'>, OpBody<'postTransactionBatch'>>,
     res: Response<OpResponse<'postTransactionBatch'>>
   ) => {
+    // Verified identity from the token
+    console.log(`Batch write authenticated as ${req.auth?.sub}`);
+
     // Defaulted here rather than relying on the validator injecting the schema default, so this
     // handler reads correctly on its own.
     const { transactions, on_fatal_error = 'stop' } = req.body;
