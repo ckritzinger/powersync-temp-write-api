@@ -68,6 +68,11 @@ out. The command stays a plain `docker compose up`, so `down`, `logs` and `ps` b
 Only one runs at a time — they share ports, and each has its own Compose project name so switching
 never reuses the previous flavour's volumes.
 
+**Bring the current mode down before switching.** Because each mode is its own Compose project,
+`docker compose down` only stops the mode currently selected in `.env`. Edit the line first and the
+old containers keep running and holding ports, and the new mode fails with
+`Bind for 0.0.0.0:6060 failed: port is already allocated`. Down first, then switch.
+
 If you would rather be explicit, the same thing without `.env`:
 
 ```bash
@@ -95,14 +100,40 @@ write-api/
 
 ## Changing the backend
 
-The backend is built from local source, so your changes ship when you rebuild:
+Append the development overlay to whichever mode you are in:
+
+```bash
+COMPOSE_FILE=docker-compose.yaml:examples/postgres/compose.yaml:docker-compose.dev.yaml
+```
+
+Your working tree is mounted into the container and the process restarts on save — an edit is
+serving in about two seconds, with no image rebuild. It works in Adopter Mode too, which is
+arguably where it matters more: wiring this into your own database is exactly when you are editing
+`src/persistance/` and `src/auth/verifier.ts`.
+
+Without the overlay, changes ship on rebuild — the deployment-shaped path:
 
 ```bash
 docker compose up --build
 ```
 
+The demo client is a Vite app, so its own loop is the usual one, on the host:
+
+```bash
+cd frontend && pnpm dev
+```
+
+That reads `.env.local` at runtime, so changing a URL needs no rebuild. In the container the client
+is a production build with its URLs baked in, which is why it is not part of the overlay.
+
 Auth seams worth knowing: `backend/src/auth/verifier.ts` is where you swap the demo's tokens for
 your own identity provider — see [auth-verifiers.md](./auth-verifiers.md) for worked examples.
+
+Replacing the throwaway signing keys is one command:
+
+```bash
+cd backend && pnpm generate-keys      # prints both values for .env
+```
 
 > The signing keys in `.env` are a **public throwaway pair**, committed so the backend signs
 > consistently across restarts. Replace them before this is anything but a demo.

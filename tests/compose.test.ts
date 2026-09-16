@@ -129,3 +129,37 @@ describe.each(MODES)('$name', (mode) => {
     );
   });
 });
+
+/**
+ * The development overlay is a modifier rather than a mode: it may be appended to either mode and
+ * must change only how the backend runs. Adding or removing a service here would mean an adopter's
+ * dev loop differs from what they deploy.
+ */
+describe('development overlay', () => {
+  const withDev = (composeFile: string) => `${composeFile}:docker-compose.dev.yaml`;
+
+  it.each(MODES)('adds no services and removes none from $name', async (mode) => {
+    const plain = await resolve(mode.composeFile);
+    const dev = await resolve(withDev(mode.composeFile));
+
+    expect(Object.keys(dev.services).sort()).toEqual(Object.keys(plain.services).sort());
+  });
+
+  it.each(MODES)('mounts the working tree into the backend for $name', async (mode) => {
+    const dev = await resolve(withDev(mode.composeFile));
+    const mounts = (dev.services.backend.volumes ?? []) as { target: string; source?: string }[];
+
+    const workingTree = mounts.find((v) => v.target === '/app');
+    expect(workingTree?.source && path.relative(repoRoot, workingTree.source)).toBe('backend');
+
+    // An anonymous volume keeps the image's Linux node_modules. Without it the bind mount above
+    // shadows them with the host's, which on macOS are binaries the container cannot run.
+    expect(mounts.some((v) => v.target === '/app/node_modules')).toBe(true);
+  });
+
+  it.each(MODES)('leaves the config mount untouched for $name', async (mode) => {
+    const dev = await resolve(withDev(mode.composeFile));
+
+    expect(mountedAtConfig(dev.services.powersync)).toEqual([mode.configMount]);
+  });
+});
