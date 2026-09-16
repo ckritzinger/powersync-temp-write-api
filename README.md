@@ -10,8 +10,9 @@ Clone it, point it at your own database, and change the code.
 
 ## Quickstart — see it work
 
-This brings up a complete, self-contained system with **no configuration and no credentials**: a
-seeded Postgres, the PowerSync service, the write API, and a small demo client.
+This brings up a complete, self-contained system with **nothing for you to configure**: a seeded
+Postgres, the PowerSync service, the write API, and a small demo client. The committed `.env`
+already holds everything it needs, including a throwaway signing keypair.
 
 ```bash
 docker compose up --build
@@ -90,11 +91,15 @@ write-api/
 ├── config/                   # ADOPTER MODE config — yours to edit
 │   ├── service.yaml
 │   └── sync-config.yaml
+├── docker-compose.dev.yaml   # Overlay: edit backend code without rebuilding
 ├── examples/                 # Delete this when you no longer need it
-│   └── postgres/
-│       ├── compose.yaml      # Seeded Postgres + demo client
-│       ├── powersync/        # This example's PowerSync config
-│       └── init-scripts/     # Demo schema + seed data
+│   ├── postgres/             # Seeded Postgres + demo client
+│   │   ├── compose.yaml
+│   │   ├── powersync/        # This example's PowerSync config
+│   │   └── init-scripts/     # Demo schema + seed data
+│   ├── mongodb/              # No source container — shares the bucket-storage replica set
+│   ├── mysql/                # Binlog config + seeded schema
+│   └── mssql/                # CDC bootstrap container + seeded schema
 ├── backend/                  # The write API (Express, port 6060)
 │   └── openapi.yaml          # Shared contract, read by both packages
 └── frontend/                 # Demo client (React/Vite) — a test fixture

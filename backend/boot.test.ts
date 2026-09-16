@@ -13,46 +13,69 @@ import path from 'node:path';
  */
 
 const backendDir = path.dirname(fileURLToPath(import.meta.url));
+const tsx = path.join(backendDir, 'node_modules', '.bin', 'tsx');
 
-const bootWith = (env: Record<string, string>): Promise<{ code: number | null; output: string }> =>
+interface Boot {
+  code: number | null;
+  output: string;
+  /** True if it was still running when we gave up — a refusal to start should never be. */
+  stillRunning: boolean;
+}
+
+const bootWith = (env: Record<string, string>): Promise<Boot> =>
   new Promise((resolve) => {
-    const child = spawn('npx', ['tsx', 'index.ts'], {
+    const child = spawn(tsx, ['index.ts'], {
       cwd: backendDir,
-      // A port nothing else uses, so a regression that DOES start the server cannot collide with
-      // a real backend and look like a pass.
+      // A port nothing else uses, so this cannot bind over a real backend someone is running.
       env: { ...process.env, PORT: '6098', ...env }
     });
 
     let output = '';
     child.stdout.on('data', (d) => (output += d));
     child.stderr.on('data', (d) => (output += d));
-    child.on('close', (code) => resolve({ code, output }));
+
+    // Without this, a regression that DOES start the server leaves the promise pending until the
+    // suite times out, and leaks a listening process. Kill it and report that it was still up.
+    const deadline = setTimeout(() => {
+      child.kill('SIGKILL');
+      resolve({ code: null, output, stillRunning: true });
+    }, 20000);
+
+    child.on('close', (code) => {
+      clearTimeout(deadline);
+      resolve({ code, output, stillRunning: false });
+    });
   });
 
 describe('refusing to start on bad configuration', () => {
   it('explains that no connection string is configured, and exits non-zero', async () => {
-    const { code, output } = await bootWith({ DATABASE_URI: '', DATABASE_TYPE: 'postgres' });
+    const { code, output, stillRunning } = await bootWith({
+      DATABASE_URI: '',
+      DATABASE_TYPE: 'postgres'
+    });
 
+    expect(stillRunning).toBe(false);
     expect(code).not.toBe(0);
     expect(output).toContain('DATABASE_URI');
     // The message must name the fix, not just the fault.
     expect(output.toLowerCase()).toContain('.env');
-    // A raw stack trace is not a readable message.
-    expect(output).not.toContain('at createConfiguredPersister');
-    expect(output).not.toContain('Server is running');
-  }, 60000);
+    // A raw stack trace is not a readable message. Assert on the shape of one rather than on any
+    // particular frame, so renaming a function cannot quietly make this vacuous.
+    expect(output).not.toMatch(/^\s+at .+/m);
+  }, 40000);
 
   it('names the supported databases when the type is not one of them', async () => {
-    const { code, output } = await bootWith({
+    const { code, output, stillRunning } = await bootWith({
       DATABASE_URI: 'postgres://u:p@h:5432/d',
       DATABASE_TYPE: 'cassandra'
     });
 
+    expect(stillRunning).toBe(false);
     expect(code).not.toBe(0);
     expect(output).toContain('cassandra');
     for (const supported of ['postgres', 'mongodb', 'mysql', 'mssql']) {
       expect(output).toContain(supported);
     }
-    expect(output).not.toContain('Server is running');
-  }, 60000);
+    expect(output).not.toMatch(/^\s+at .+/m);
+  }, 40000);
 });

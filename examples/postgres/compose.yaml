@@ -8,6 +8,9 @@
 
 name: write-api-postgres
 
+# Demo credentials: public, committed, and known to anyone who has cloned this repo — the same
+# kind of throwaway as the signing keys in .env. Replace them before this is anything but a demo.
+
 services:
   # The Example Source Database. Delete this whole directory when you no longer need it.
   pg-db:

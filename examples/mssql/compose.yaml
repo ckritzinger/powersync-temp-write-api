@@ -9,6 +9,11 @@
 
 name: write-api-mssql
 
+# Demo credentials, the same kind of throwaway as the signing keys in .env: public, committed, and
+# known to anyone who has cloned this repo. Defined once here so the server, the bootstrap and the
+# connection strings cannot drift apart.
+x-mssql-sa-password: &sa_password "Powersync_demo_pw1"
+
 services:
   mssql-db:
     image: mcr.microsoft.com/mssql/server:2022-latest
@@ -18,7 +23,7 @@ services:
     restart: always
     environment:
       ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: "Powersync_demo_pw1"
+      MSSQL_SA_PASSWORD: *sa_password
       # CDC capture and cleanup run as SQL Agent jobs. Without the Agent, CDC is enabled but
       # nothing is ever captured, and replication silently stays empty.
       MSSQL_AGENT_ENABLED: "true"
@@ -46,12 +51,14 @@ services:
     depends_on:
       mssql-db:
         condition: service_healthy
+    environment:
+      MSSQL_SA_PASSWORD: *sa_password
     volumes:
       - ./examples/mssql/init-scripts/setup.sql:/scripts/setup.sql:ro
     entrypoint:
       - /bin/bash
       - -c
-      - '/opt/mssql-tools18/bin/sqlcmd -S mssql-db -U sa -P "Powersync_demo_pw1" -C -b -i /scripts/setup.sql'
+      - '/opt/mssql-tools18/bin/sqlcmd -S mssql-db -U sa -P "$$MSSQL_SA_PASSWORD" -C -b -i /scripts/setup.sql'
 
   backend:
     environment:
@@ -75,6 +82,8 @@ services:
     build:
       context: ./frontend
       args:
+        # These resolve in your browser, not on the compose network, so they are localhost —
+        # unlike every server-to-server URL here. Vite bakes them in at build time.
         VITE_POWERSYNC_URL: http://localhost:8080
         VITE_BACKEND_URL: http://localhost:6060
     restart: unless-stopped

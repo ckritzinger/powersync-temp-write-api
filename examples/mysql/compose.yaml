@@ -5,6 +5,10 @@
 
 name: write-api-mysql
 
+# Demo credentials: public, committed, and known to anyone who has cloned this repo — the same
+# kind of throwaway as the signing keys in .env. The powersync user's password also appears in
+# init-scripts/setup.sql, which creates it; the two must match.
+
 services:
   mysql-db:
     image: mysql:8.4
@@ -47,6 +51,8 @@ services:
     build:
       context: ./frontend
       args:
+        # These resolve in your browser, not on the compose network, so they are localhost —
+        # unlike every server-to-server URL here. Vite bakes them in at build time.
         VITE_POWERSYNC_URL: http://localhost:8080
         VITE_BACKEND_URL: http://localhost:6060
     restart: unless-stopped

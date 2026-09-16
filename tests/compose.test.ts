@@ -24,11 +24,11 @@ interface Mode {
   composeFile: string;
   projectName: string;
   services: string[];
-  /** Repo-relative path expected to be mounted at /config, or null for no example override. */
+  /** Repo-relative path expected to be mounted at /config. */
   configMount: string;
-  databaseType?: string;
+  databaseType: string;
   /** Substring the write API's and PowerSync's connection strings must both contain. */
-  connectionHost?: string;
+  connectionHost: string;
 }
 
 const ADOPTER_ENV = {
@@ -84,17 +84,26 @@ const MODES: Mode[] = [
     services: ['backend', 'frontend', 'mongo', 'mongo-rs-init', 'pg-db', 'powersync'],
     configMount: 'examples/postgres/powersync',
     databaseType: 'postgres',
-    connectionHost: 'pg-db'
+    connectionHost: 'pg-db:5432'
   }
 ];
 
-const resolve = async (composeFile: string) => {
-  const { stdout } = await run('docker', ['compose', 'config', '--format', 'json'], {
+// Resolving is pure, and every assertion below needs the same handful of resolutions. Without
+// this the suite shells out to Compose once per assertion.
+const cache = new Map<string, Promise<any>>();
+
+const resolve = (composeFile: string) => {
+  const cached = cache.get(composeFile);
+  if (cached) return cached;
+
+  const pending = run('docker', ['compose', 'config', '--format', 'json'], {
     cwd: repoRoot,
     env: { ...process.env, ...ADOPTER_ENV, COMPOSE_FILE: composeFile },
     maxBuffer: 10 * 1024 * 1024
-  });
-  return JSON.parse(stdout);
+  }).then(({ stdout }) => JSON.parse(stdout));
+
+  cache.set(composeFile, pending);
+  return pending;
 };
 
 const mountedAtConfig = (service: { volumes?: { target: string; source: string }[] }): string[] =>

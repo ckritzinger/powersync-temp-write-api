@@ -32,7 +32,10 @@ services:
   backend:
     build:
       context: ./backend
-    restart: unless-stopped
+    # Bounded on purpose. A configuration error exits 1, and `unless-stopped` would respawn it
+    # forever — scrolling the message past and leaving powersync waiting on a healthcheck that can
+    # never pass. Three attempts still covers a transient crash.
+    restart: on-failure:3
     environment:
       PORT: "6060"
       POWERSYNC_URL: powersync-dev

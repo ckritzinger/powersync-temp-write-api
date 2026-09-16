@@ -1,3 +1,5 @@
+# yaml-language-server: $schema=https://unpkg.com/@powersync/service-schema@latest/json-schema/powersync-config.json
+
 telemetry:
   disable_telemetry_sharing: false
 
@@ -8,6 +10,7 @@ replication:
       sslmode: disable
 
 storage:
+  # Still ours, still inside the docker boundary.
   type: mongodb
   uri: !env PS_MONGO_URI
 

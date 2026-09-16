@@ -62,3 +62,49 @@ its uppercase form in the database are the same value.
 
 `setup.sql` is idempotent, but the seed data only inserts when the seeded list is absent. Drop the
 volume with `docker compose down -v` for a genuinely clean start.
+
+## Verify it end to end
+
+The automated suite checks the resolved topology, not a live round trip — that is deliberate, since
+bringing four flavours up is slow and flaky. This is the manual check it stands in for.
+
+**1. Everything healthy.**
+
+```bash
+docker compose ps
+```
+
+**2. Get a token and write through the API.**
+
+```bash
+TOKEN=$(curl -s "http://localhost:6060/api/auth/token?user_id=demo-user" \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
+
+curl -s -X POST http://localhost:6060/api/data \
+  -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"transactions":[{"transaction_id":1,"crud":[{"op":"PUT","table":"todos",
+       "id":"11111111-1111-1111-1111-111111111111",
+       "op_data":{"description":"smoke test","completed":false,
+                  "list_id":"75F89104-D95A-4F16-8309-5363F1BB377A"}}]}]}'
+```
+
+Expect `{"results":[{"status":"success"}]}`.
+
+**3. Confirm it reached the database.**
+
+```bash
+docker compose exec -T mssql-db /opt/mssql-tools18/bin/sqlcmd \
+  -S localhost -U sa -P "Powersync_demo_pw1" -C -Q \
+  "USE powersync_demo; SELECT description FROM dbo.todos WHERE description='smoke test';"
+```
+
+**4. Confirm it syncs back.**
+
+```bash
+curl -sN -m 10 -X POST http://localhost:8080/sync/stream \
+  -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"buckets":[],"include_checksum":true,"raw_data":true}' | grep "smoke test"
+```
+
+CDC polls rather than streams, so step 4 can lag a few seconds behind step 3. If it never
+arrives, check that SQL Server Agent is running and the CDC capture jobs exist.
