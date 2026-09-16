@@ -10,7 +10,7 @@
     "format": "prettier --write .",
     "check": "tsc -b",
     "test": "vitest run",
-    "generate-types": "openapi-typescript ../openapi.yaml -o src/generated/api.ts"
+    "generate-types": "openapi-typescript ./openapi.yaml -o src/generated/api.ts"
   },
   "dependencies": {
     "dotenv": "^16.3.1",

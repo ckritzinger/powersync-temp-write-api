@@ -38,7 +38,9 @@ cd frontend && pnpm install && pnpm dev
 
 ## Generating Types from OpenAPI Spec
 
-Both the backend and frontend generate TypeScript types from the shared `openapi.yaml` spec.
+Both the backend and frontend generate TypeScript types from the shared contract at
+`backend/openapi.yaml`. It lives inside the backend so that the backend's Docker build context
+contains it; the frontend reads it across the directory boundary.
 
 ```bash
 # Backend (generates src/generated/api.ts)

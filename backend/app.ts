@@ -24,10 +24,10 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 app.use(
   OpenApiValidator.middleware({
-    apiSpec: path.join(__dirname, '..', 'openapi.yaml'),
+    apiSpec: path.join(__dirname, 'openapi.yaml'),
     validateRequests: true,
     validateResponses: false,
-    ignorePaths: /^\/api\/auth(\/|$)/
+    ignorePaths: /^\/$|^\/api\/auth(\/|$)/
   })
 );
 
