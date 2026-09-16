@@ -41,6 +41,14 @@ DATABASE_URI=postgres://user:password@your-host:5432/your-db
 Then describe your own schema in `config/service.yaml` and `config/sync-config.yaml`. Those two
 files are yours from the first minute — no example ever writes to them.
 
+**Fill in `config/sync-config.yaml` before you start.** It ships empty, because only you know your
+schema, and PowerSync will restart in a loop logging `'streams' are required` until it has at
+least one stream. Remember `auto_subscribe: true` — without it a stream syncs nothing and reports
+no error anywhere.
+
+If your database runs on this machine rather than in Docker, reach it at `host.docker.internal`,
+not `localhost` — inside a container, `localhost` is the container.
+
 In Adopter Mode there is no bundled database and no demo client. Bring your own client.
 
 > Bucket storage — PowerSync's own internal store — always runs in a container this project owns,

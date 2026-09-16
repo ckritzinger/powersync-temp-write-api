@@ -2,8 +2,10 @@
 
 # Adopter Mode: this file is YOURS. Describe what your clients should sync.
 #
-# There is no sensible default here — only you know your schema — so this starts empty and the
-# service will tell you so until you fill it in.
+# There is no sensible default here — only you know your schema — so this starts empty.
+#
+# Until you add a stream, the PowerSync service will restart in a loop logging
+# `'streams' are required`. That is expected, not a bug: fill this in before starting Adopter Mode.
 
 config:
   # The compiled-streams edition. Omitting this selects the legacy compiler, which rejects
