@@ -13,6 +13,8 @@ paths:
     post:
       operationId: postCrudTransaction
       summary: Apply a transaction of CRUD operations
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -28,6 +30,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TransactionResponse"
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
         "500":
           description: Unexpected server error
           content:
@@ -36,6 +44,13 @@ paths:
                 $ref: "#/components/schemas/MessageResponse"
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Bearer JWT authenticating the writer to the backend.
+
   schemas:
     CrudTransaction:
       type: object

@@ -18,6 +18,7 @@ export class DemoConnector implements PowerSyncBackendConnector {
 
   private _clientId: string | null;
   private _writeClient: WriteAPIClient | null;
+  private _writeToken: string | null;
 
   constructor() {
     let userId = localStorage.getItem(USER_ID_STORAGE_KEY);
@@ -28,13 +29,20 @@ export class DemoConnector implements PowerSyncBackendConnector {
     this.userId = userId;
     this._clientId = null;
     this._writeClient = null;
+    this._writeToken = null;
 
     this.config = {
       backendUrl: import.meta.env.VITE_BACKEND_URL,
       powersyncUrl: import.meta.env.VITE_POWERSYNC_URL
     };
 
-    this.apiClient = createOpenAPIClient(this.config.backendUrl);
+    this.apiClient = createOpenAPIClient(this.config.backendUrl, {
+      getToken: () => this.getWriteToken(),
+      // Token rejected, drop it so the next write fetches a fresh one.
+      onUnauthorized: () => {
+        this._writeToken = null;
+      }
+    });
   }
 
   async fetchCredentials() {
@@ -47,10 +55,21 @@ export class DemoConnector implements PowerSyncBackendConnector {
 
     const { token } = await res.json();
 
+    // The write API accepts the same token PowerSync sync uses, cache it so
+    // writes reuse it instead of minting their own.
+    this._writeToken = token;
+
     return {
       endpoint: this.config.powersyncUrl,
       token
     };
+  }
+
+  private async getWriteToken(): Promise<string> {
+    if (!this._writeToken) {
+      await this.fetchCredentials();
+    }
+    return this._writeToken!;
   }
 
   private async getWriteClient(database: AbstractPowerSyncDatabase): Promise<WriteAPIClient> {

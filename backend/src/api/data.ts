@@ -26,6 +26,8 @@ router.post(
     res: Response<OpResponse<'postCrudTransaction'>>
   ) => {
     try {
+      // Verified identity from the token
+      console.log(`Write authenticated as ${req.auth?.sub}`);
       await updateBatch(req.body.crud);
       res.status(200).send({ status: 'success', message: 'Transaction completed' });
     } catch (e) {
