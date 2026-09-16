@@ -59,13 +59,3 @@ _Avoid_: dropped write, discarded transaction
 **Poison Operation**:
 An operation that fails on every attempt because the fault is in the operation itself, not the environment. It sits at the head of the queue and blocks it until deliberately discarded.
 _Avoid_: bad record, dead letter, stuck write
-
-### Out of scope
-
-**Mutator**:
-A named server-side procedure invoked with arguments, as an alternative to uploading row-level operations. Referenced here only as a shape to borrow from; the write API demo uploads operations, not mutator calls.
-_Avoid_: RPC, command, server function
-
-**Batch**:
-A bounded window over the head of the upload queue taken without regard to transaction boundaries, so that one transaction could span several requests. Named only to rule it out: the write API never splits a transaction, and the word batch on its own always means a transaction batch here.
-_Avoid_: CRUD batch, chunk, page
