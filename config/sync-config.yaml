@@ -1,16 +1,20 @@
 # yaml-language-server: $schema=https://unpkg.com/@powersync/service-sync-rules@latest/schema/sync_rules.json
 
+# Adopter Mode: this file is YOURS. Describe what your clients should sync.
+#
+# There is no sensible default here — only you know your schema — so this starts empty and the
+# service will tell you so until you fill it in.
+
 config:
-  # The compiled-streams edition. Omitting this selects edition 1, the legacy compiler, which
-  # would reject the `streams` block below.
+  # The compiled-streams edition. Omitting this selects the legacy compiler, which rejects
+  # `streams` entirely.
   edition: 3
 
 streams:
-  global:
-    # Streams do not subscribe by default — omit this and the client syncs nothing, with no error
-    # reported anywhere. The legacy bucket_definitions format had no equivalent concept, so this
-    # line is what preserves the old sync-everything-upfront behaviour.
-    auto_subscribe: true
-    queries:
-      - SELECT * FROM lists
-      - SELECT * FROM todos
+  # Replace with your own. For example:
+  #
+  # my_data:
+  #   # Streams do NOT subscribe by default. Without this line the client syncs nothing and
+  #   # reports no error anywhere.
+  #   auto_subscribe: true
+  #   query: SELECT * FROM my_table WHERE owner_id = auth.user_id()

@@ -1,36 +1,23 @@
-services:
-  # PostgreSQL - source database
-  pg-db:
-    image: postgres:18
-    restart: always
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_DB: postgres
-      POSTGRES_PASSWORD: mypassword
-      PGPORT: "5432"
-    volumes:
-      - pg_data:/var/lib/postgresql
-      - ./init-scripts:/docker-entrypoint-initdb.d
-    ports:
-      - "5432:5432"
-    command: ["postgres", "-c", "wal_level=logical"]
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+# Base definition — everything both run modes share.
+#
+# On its own this is Adopter Mode: no Example Source Database, no demo client. Point it at a
+# database you already run by setting DATABASE_URI in .env.
+#
+# An example overlay adds a source database, a demo client, and its own PowerSync config. Select
+# one with COMPOSE_FILE in .env.
 
-  # MongoDB - PowerSync internal storage
+services:
+  # PowerSync's bucket storage. This is the service's own internal store, not your data, and it
+  # stays inside the docker boundary in every mode — we never create schemas in a database you
+  # merely pointed us at.
   mongo:
     image: mongo:7.0
     command: --replSet rs0 --bind_ip_all --quiet
     restart: unless-stopped
-    ports:
-      - "27017:27017"
     volumes:
       - mongo_storage:/data/db
 
-  # Initializes the MongoDB replica set
+  # Bucket storage needs a replica set; a single node is fine outside production.
   mongo-rs-init:
     image: mongo:7.0
     depends_on:
@@ -41,7 +28,34 @@ services:
       - -c
       - 'mongosh --host mongo:27017 --eval ''try{rs.status().ok && quit(0)} catch {} rs.initiate({_id: "rs0", version: 1, members: [{ _id: 0, host : "mongo:27017" }]})'''
 
-  # PowerSync service
+  # The write API. Built from local source, so your changes land by rebuilding.
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      PORT: "6060"
+      POWERSYNC_URL: powersync-dev
+      JWT_ISSUER: powersync-dev
+      POWERSYNC_PRIVATE_KEY: ${POWERSYNC_PRIVATE_KEY}
+      POWERSYNC_PUBLIC_KEY: ${POWERSYNC_PUBLIC_KEY}
+      # Adopter Mode: your database. An example overlay replaces both of these.
+      DATABASE_TYPE: ${DATABASE_TYPE:-postgres}
+      DATABASE_URI: ${DATABASE_URI:-}
+    ports:
+      - "6060:6060"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:6060/').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
+        ]
+      interval: 5s
+      timeout: 2s
+      retries: 15
+
   powersync:
     image: journeyapps/powersync-service:latest
     restart: unless-stopped
@@ -49,18 +63,19 @@ services:
     depends_on:
       mongo-rs-init:
         condition: service_completed_successfully
-      pg-db:
+      backend:
         condition: service_healthy
     volumes:
+      # Adopter Mode config. An example overlay replaces this mount with its own.
       - ./config:/config
     environment:
-      POWERSYNC_CONFIG_PATH: /config/powersync.yaml
+      POWERSYNC_CONFIG_PATH: /config/service.yaml
       NODE_OPTIONS: --max-old-space-size=1000
-      PS_DATA_SOURCE_URI: postgres://postgres:mypassword@pg-db:5432/postgres
-      PS_MONGO_URI: mongodb://mongo:27017/powersync_demo
-      # host.docker.internal lets the container reach the backend running on the host
-      PS_JWKS_URL: http://host.docker.internal:6060/api/auth/keys
+      PS_MONGO_URI: mongodb://mongo:27017/powersync_bucket_storage
+      # The backend is containerised, so PowerSync reaches it by service name.
+      PS_JWKS_URL: http://backend:6060/api/auth/keys
       PS_PORT: "8080"
+      PS_DATA_SOURCE_URI: ${DATABASE_URI:-}
     healthcheck:
       test:
         [
@@ -76,5 +91,4 @@ services:
       - "8080:8080"
 
 volumes:
-  pg_data:
   mongo_storage:
