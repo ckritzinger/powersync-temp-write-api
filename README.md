@@ -103,6 +103,20 @@ your own identity provider — see [auth-verifiers.md](./auth-verifiers.md) for 
 > The signing keys in `.env` are a **public throwaway pair**, committed so the backend signs
 > consistently across restarts. Replace them before this is anything but a demo.
 
+## Tests
+
+```bash
+pnpm install && pnpm test          # repo root: the resolved compose topology
+cd backend && pnpm test            # the write API
+```
+
+The root suite asks Compose to *resolve* each mode rather than run it — no containers start and no
+images are pulled, so it takes about a second. It exists because the two mechanisms holding the
+mode switch together fail silently: if an example's config mount appended to the base's instead of
+replacing it, the stack would come up perfectly healthy pointing at the wrong sync rules.
+
+The backend's own suite needs no Docker.
+
 ## Generating types from the contract
 
 Both packages generate TypeScript from `backend/openapi.yaml`:
