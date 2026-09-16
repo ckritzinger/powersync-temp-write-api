@@ -47,6 +47,17 @@ const MODES: Mode[] = [
     connectionHost: 'their-own-host'
   },
   {
+    name: 'Example Mode: MongoDB',
+    composeFile: 'docker-compose.yaml:examples/mongodb/compose.yaml',
+    projectName: 'write-api-mongodb',
+    // Deliberately no source database service: replication points at a second database on the
+    // replica set already running for bucket storage.
+    services: ['backend', 'frontend', 'mongo', 'mongo-rs-init', 'powersync'],
+    configMount: 'examples/mongodb/powersync',
+    databaseType: 'mongodb',
+    connectionHost: 'mongo:27017/powersync_demo_source'
+  },
+  {
     name: 'Example Mode: Postgres',
     composeFile: 'docker-compose.yaml:examples/postgres/compose.yaml',
     projectName: 'write-api-postgres',

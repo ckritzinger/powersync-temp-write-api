@@ -61,8 +61,12 @@ out. The command stays a plain `docker compose up`, so `down`, `logs` and `ps` b
 
 | `.env` line | What runs |
 | --- | --- |
-| `docker-compose.yaml:examples/postgres/compose.yaml` | Example Mode, Postgres |
+| `docker-compose.yaml:examples/postgres/compose.yaml` | Example Mode, [Postgres](./examples/postgres/README.md) |
+| `docker-compose.yaml:examples/mongodb/compose.yaml` | Example Mode, [MongoDB](./examples/mongodb/README.md) |
 | `docker-compose.yaml` | Adopter Mode, your database |
+
+Only one runs at a time — they share ports, and each has its own Compose project name so switching
+never reuses the previous flavour's volumes.
 
 If you would rather be explicit, the same thing without `.env`:
 
