@@ -58,6 +58,15 @@ const MODES: Mode[] = [
     connectionHost: 'mongo:27017/powersync_demo_source'
   },
   {
+    name: 'Example Mode: MySQL',
+    composeFile: 'docker-compose.yaml:examples/mysql/compose.yaml',
+    projectName: 'write-api-mysql',
+    services: ['backend', 'frontend', 'mongo', 'mongo-rs-init', 'mysql-db', 'powersync'],
+    configMount: 'examples/mysql/powersync',
+    databaseType: 'mysql',
+    connectionHost: 'mysql-db:3306'
+  },
+  {
     name: 'Example Mode: Postgres',
     composeFile: 'docker-compose.yaml:examples/postgres/compose.yaml',
     projectName: 'write-api-postgres',

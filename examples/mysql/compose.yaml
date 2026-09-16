@@ -1,0 +1,60 @@
+# Example Mode: MySQL.
+#
+# NOTE: relative paths here resolve against the PROJECT directory — the repo root — not against
+# this file's own location.
+
+name: write-api-mysql
+
+services:
+  mysql-db:
+    image: mysql:8.4
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: mypassword
+      MYSQL_DATABASE: powersync_demo
+    volumes:
+      # Binlog settings must be in place before the server starts; a setup script is too late.
+      - ./examples/mysql/init-scripts/my.cnf:/etc/mysql/conf.d/powersync.cnf
+      - ./examples/mysql/init-scripts/setup.sql:/docker-entrypoint-initdb.d/setup.sql
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pmypassword"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    environment:
+      # The write API connects as root; PowerSync connects as the restricted replication user.
+      DATABASE_TYPE: mysql
+      DATABASE_URI: mysql://root:mypassword@mysql-db:3306/powersync_demo
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+
+  powersync:
+    volumes:
+      - ./examples/mysql/powersync:/config
+    environment:
+      PS_DATA_SOURCE_URI: mysql://powersync:powersyncpw@mysql-db:3306/powersync_demo
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_POWERSYNC_URL: http://localhost:8080
+        VITE_BACKEND_URL: http://localhost:6060
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "5173:4173"
+
+volumes:
+  mysql_data:
