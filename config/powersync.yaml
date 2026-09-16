@@ -13,8 +13,8 @@ storage:
 
 port: !env PS_PORT
 
-sync_rules:
-  path: sync_rules.yaml
+sync_config:
+  path: sync-config.yaml
 
 client_auth:
   jwks_uri: !env PS_JWKS_URL
