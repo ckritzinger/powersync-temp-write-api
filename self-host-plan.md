@@ -190,9 +190,9 @@ starts cleanly and then answers every request with
 
 Four edits:
 
-- `backend/app.ts:27` — `path.join(__dirname, '..', 'openapi.yaml')` -> `path.join(__dirname, 'openapi.yaml')`
-- `backend/package.json:13` — `../openapi.yaml` -> `./openapi.yaml`
-- `frontend/package.json:6` — `../openapi.yaml` -> `../backend/openapi.yaml`
+- `backend/app.ts` — the spec path the validator loads, from `../openapi.yaml` to alongside `app.ts`
+- `backend/package.json` — the type-generation script's input
+- `frontend/package.json` — the type-generation script's input, now reaching across into `backend/`
 - `README.md:41` — wording
 
 ## Dev loop

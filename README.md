@@ -6,8 +6,6 @@ to clients.
 
 Clone it, point it at your own database, and change the code.
 
-![Architecture diagram](./diagram.png)
-
 ## Quickstart — see it work
 
 This brings up a complete, self-contained system with **nothing for you to configure**: a seeded

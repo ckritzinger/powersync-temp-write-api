@@ -34,91 +34,68 @@ supported database maps its driver's errors onto them in its own `*-errors.ts` u
 
 ## Packages
 
-[node-postgres](https://github.com/brianc/node-postgres) is used to interact with the Postgres database when a client performs requests to the `/api/data` endpoint.
+[node-postgres](https://github.com/brianc/node-postgres), [mongodb](https://www.npmjs.com/package/mongodb),
+[mysql2](https://www.npmjs.com/package/mysql2) and [node-mssql](https://www.npmjs.com/package/mssql) back the
+four persisters behind `POST /api/data`. [jose](https://github.com/panva/jose) signs and verifies the JWT.
 
-[mongodb](https://www.npmjs.com/package/mongodb) is used to interact with the MongoDB database when a client performs requests to the `/api/data` endpoint.
+## Running it
 
-[mysql2](https://www.npmjs.com/package/mysql2) is used to interact with the MySQL database when a client performs requests to the `/api/data` endpoint.
+The backend runs in Docker Compose, alongside the PowerSync service and bucket storage. It is not
+meant to be started on its own — see the [root README](../README.md) for the two run modes.
 
-[node-mssql](https://www.npmjs.com/package/mssql) is used to connect to a MSSQL database to perform operations from the `/api/data` endpoint.
+From the repo root:
 
-[jose](https://github.com/panva/jose) is used to sign the JWT which PowerSync uses for authorization.
-
-## Requirements
-
-Based on configuration, this app needs a Postgres, Mongo, MSSQL or MySQL instance. Easiest is probably to use docker containers for these databases.
-Hosted free versions that can also be used:
-
-1. Postgres: For a free version for testing/demo purposes, visit [Supabase](https://supabase.com/).
-
-## Running the app
-
-1. Clone the repository
-2. Follow the steps outlined in [PowerSync Custom Authentication Example](https://github.com/journeyapps/powersync-jwks-example) → [Generate a key-pair](https://github.com/journeyapps/powersync-jwks-example#1-generate-a-key-pair) to get the keys you need for this app. This is an easy way to get started with this demo app. You can use your own public/private keys as well. Note: This backend will generate a temporary key pair for development purposes if the keys are not present in the `.env` file. This should not be used in production.
-3. Create a new `.env` file in the root project directory and add the variables as defined in the `.env` file:
-
-```shell
-cp .env.template .env
+```bash
+docker compose up --build
 ```
 
-4. Install dependancies
+To edit backend code without rebuilding the image, append the development overlay to `COMPOSE_FILE`
+in the root `.env`:
 
-```shell
-nvm use
+```bash
+COMPOSE_FILE=docker-compose.yaml:examples/postgres/compose.yaml:docker-compose.dev.yaml
 ```
 
-```shell
-pnpm install
+Your working tree is mounted in and the process restarts on save.
+
+> Running `pnpm start` on the host as well will fail with `address already in use`, or quietly
+> shadow the container — both want port 6060.
+
+## Configuration
+
+Set in the root `.env` and in the Compose overlays, not here:
+
+| Variable | Meaning |
+| --- | --- |
+| `DATABASE_TYPE` | `postgres`, `mongodb`, `mysql` or `mssql` |
+| `DATABASE_URI` | Connection string for the source database |
+| `PORT` | Defaults to 6060 |
+| `POWERSYNC_URL`, `JWT_ISSUER` | Audience and issuer for the tokens this backend mints |
+| `POWERSYNC_PRIVATE_KEY`, `POWERSYNC_PUBLIC_KEY` | Base64 JWKs for signing |
+
+The backend refuses to start, before serving any traffic, if `DATABASE_URI` is unset or
+`DATABASE_TYPE` is not one of the four — with a message naming the fix rather than a stack trace.
+
+If no keypair is configured it generates a temporary one at boot. That is fine for a one-off run
+and wrong for everything else: every restart mints a new key, and PowerSync rejects tokens it
+accepted moments earlier with `PSYNC_S2101 — Could not find an appropriate key in the keystore`.
+The repo ships a committed throwaway pair so this does not happen. To mint your own:
+
+```bash
+pnpm generate-keys
 ```
 
-## Start App
+## Using your own identity provider
 
-1. Run the following to start the application
+`src/auth/verifier.ts` is the seam. The demo verifies the same token this backend mints; replace
+that export to accept tokens from Supabase, Clerk, Auth0 or anything else. Worked examples are in
+[auth-verifiers.md](../auth-verifiers.md).
 
-```shell
-pnpm start
+## Tests
+
+```bash
+pnpm test     # HTTP against the assembled app, plus the boot-failure contract
+pnpm check    # types
 ```
 
-This will start the app on `http://127.0.0.1:PORT`, where PORT is what you specify in your `.env` file.
-
-2. Test if the app is working by opening `http://127.0.0.1:PORT/api/auth/token/` in the browser
-
-3. You should get a JSON object as the response to that request
-
-## Connecting the app with PowerSync
-
-This process is only designed for demo/testing purposes, and is not intended for production use. You won't be using ngrok to host your application and database.
-
-1. Download and install [ngrok](https://ngrok.com/)
-2. Run the ngrok command to create a HTTPS tunnel to your local application
-
-```shell
-ngrok http 8000
-```
-
-This should create the tunnel and a new HTTPS URL should be availible e.g.
-
-```shell
-ngrok by @inconshreveable                                                                                                                  (Ctrl+C to quit)
-
-Session Status                online
-Account                       Michael Barnes (Plan: Free)
-Update                        update available (version 2.3.41, Ctrl-U to update)
-Version                       2.3.40
-Region                        United States (us)
-Web Interface                 http://127.0.0.1:4040
-Forwarding                    http://your_id.ngrok-free.app -> http://localhost:8000
-Forwarding                    https://your_id.ngrok-free.app -> http://localhost:8000
-
-Connections                   ttl     opn     rt1     rt5     p50     p90
-                              1957    0       0.04    0.03    0.01    89.93
-```
-
-3. Open the [PowerSync Dashboard](https://powersync.journeyapps.com/) and paste the `Forwarding` URL starting with HTTPS into the Credentials tab of your PowerSync instance e.g.
-
-```
-JWKS URI
-https://your_id.ngrok-free.app/api/auth/keys/
-```
-
-Pay special attention to the URL, it should include the `/api/auth/keys/` path as this is used by the PowerSync server to validate tokens.
+Neither needs Docker.
