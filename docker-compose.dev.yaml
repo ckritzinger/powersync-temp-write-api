@@ -1,0 +1,20 @@
+# Development overlay: edit backend code and see it running in seconds, with no image rebuild.
+#
+# Append it to whichever mode you are in:
+#
+#   COMPOSE_FILE=docker-compose.yaml:examples/postgres/compose.yaml:docker-compose.dev.yaml
+#   COMPOSE_FILE=docker-compose.yaml:docker-compose.dev.yaml                  # Adopter Mode
+#
+# It overrides the backend only. An adopter running Adopter Mode has no demo client for an
+# overlay to reference, so the client's own dev loop is `cd frontend && pnpm dev` on the host.
+
+services:
+  backend:
+    # tsx watch, already in the backend's scripts — restarts on save.
+    command: ["pnpm", "dev"]
+    volumes:
+      # Your working tree, live in the container.
+      - ./backend:/app
+      # Keeps the image's Linux node_modules. Without this the bind mount above shadows them with
+      # the host's, which on macOS means native binaries the container cannot run.
+      - /app/node_modules

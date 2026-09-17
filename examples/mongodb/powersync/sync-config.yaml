@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://unpkg.com/@powersync/service-sync-rules@latest/schema/sync_rules.json
+
+config:
+  edition: 3
+
+streams:
+  global:
+    # Streams do not subscribe by default — omit this and the client syncs nothing, silently.
+    auto_subscribe: true
+    queries:
+      # MongoDB's primary key is _id. The client schema expects `id`, so project it across —
+      # without this, documents sync but arrive without the identifier everything else keys on.
+      # `*` does still carry _id through as well; the extra field is harmless, since the client
+      # schema ignores columns it does not declare.
+      - SELECT _id as id, * FROM lists
+      - SELECT _id as id, * FROM todos

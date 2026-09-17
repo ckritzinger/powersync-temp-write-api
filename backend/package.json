@@ -7,10 +7,11 @@
   "scripts": {
     "start": "tsx index.ts",
     "dev": "tsx watch index.ts",
+    "generate-keys": "tsx scripts/generate-keys.ts",
     "format": "prettier --write .",
     "check": "tsc -b",
     "test": "vitest run",
-    "generate-types": "openapi-typescript ../openapi.yaml -o src/generated/api.ts"
+    "generate-types": "openapi-typescript ./openapi.yaml -o src/generated/api.ts"
   },
   "dependencies": {
     "dotenv": "^16.3.1",

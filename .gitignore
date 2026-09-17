@@ -16,3 +16,6 @@ docs/agents/
 
 # Per-repo agent instructions
 CLAUDE.md
+
+# Dependencies. Lockfiles stay tracked — the Dockerfiles install with --frozen-lockfile.
+node_modules/

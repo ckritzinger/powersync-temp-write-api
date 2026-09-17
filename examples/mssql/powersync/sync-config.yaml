@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://unpkg.com/@powersync/service-sync-rules@latest/schema/sync_rules.json
+
+config:
+  edition: 3
+
+streams:
+  global:
+    # Streams do not subscribe by default — omit this and the client syncs nothing, silently.
+    auto_subscribe: true
+    queries:
+      - SELECT * FROM lists
+      - SELECT * FROM todos

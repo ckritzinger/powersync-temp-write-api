@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://unpkg.com/@powersync/service-sync-rules@latest/schema/sync_rules.json
+
+# Adopter Mode: this file is YOURS. Describe what your clients should sync.
+#
+# There is no sensible default here — only you know your schema — so this starts empty.
+#
+# Until you add a stream, the PowerSync service will restart in a loop logging
+# `'streams' are required`. That is expected, not a bug: fill this in before starting Adopter Mode.
+
+config:
+  # The compiled-streams edition. Omitting this selects the legacy compiler, which rejects
+  # `streams` entirely.
+  edition: 3
+
+streams:
+  # Replace with your own. For example:
+  #
+  # my_data:
+  #   # Streams do NOT subscribe by default. Without this line the client syncs nothing and
+  #   # reports no error anywhere.
+  #   auto_subscribe: true
+  #   query: SELECT * FROM my_table WHERE owner_id = auth.user_id()

@@ -1,5 +1,6 @@
 import config from '../../config.js';
 import { factories } from './persister-factories.js';
+import { ConfigurationError } from '../errors.js';
 import type { Persister } from '../types.js';
 
 let substituted: Persister | null = null;
@@ -32,10 +33,21 @@ export const getPersister = async (): Promise<Persister> => {
 const createConfiguredPersister = async (): Promise<Persister> => {
   const factory = factories[config.database.type];
   if (!factory) {
-    throw new Error(`Unsupported database type: ${config.database.type}`);
+    const supported = Object.keys(factories).sort().join(', ');
+    throw new ConfigurationError(
+      `DATABASE_TYPE is "${config.database.type}", which is not a database this backend supports.\n\n` +
+        `Supported: ${supported}\n\n` +
+        `Set it in .env.`
+    );
   }
   if (!config.database.uri) {
-    throw new Error('DATABASE_URI environment variable is required');
+    throw new ConfigurationError(
+      `DATABASE_URI is not set, so there is no source database to write to.\n\n` +
+        `Set it in .env to a database you already run:\n\n` +
+        `  DATABASE_URI=postgres://user:password@host:5432/database\n\n` +
+        `Or select a bundled example instead, which brings its own database:\n\n` +
+        `  COMPOSE_FILE=docker-compose.yaml:examples/postgres/compose.yaml`
+    );
   }
 
   return factory(config.database.uri);

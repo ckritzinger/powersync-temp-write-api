@@ -1,0 +1,97 @@
+# Example Mode: SQL Server.
+#
+# The heaviest of the examples. SQL Server replicates through Change Data Capture rather than log
+# streaming, so it needs a bootstrap step that the other flavours do not, and SQL Server Agent must
+# be running for the CDC capture jobs.
+#
+# NOTE: relative paths here resolve against the PROJECT directory — the repo root — not against
+# this file's own location.
+
+name: write-api-mssql
+
+# Demo credentials, the same kind of throwaway as the signing keys in .env: public, committed, and
+# known to anyone who has cloned this repo. Defined once here so the server, the bootstrap and the
+# connection strings cannot drift apart.
+x-mssql-sa-password: &sa_password "Powersync_demo_pw1"
+
+services:
+  mssql-db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    # Microsoft publishes no arm64 image, so this runs under emulation on Apple Silicon. It works,
+    # but it is slow to start — expect the healthcheck to take a while on the first run.
+    platform: linux/amd64
+    restart: always
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: *sa_password
+      # CDC capture and cleanup run as SQL Agent jobs. Without the Agent, CDC is enabled but
+      # nothing is ever captured, and replication silently stays empty.
+      MSSQL_AGENT_ENABLED: "true"
+    volumes:
+      - mssql_data:/var/opt/mssql
+    ports:
+      - "1433:1433"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+
+  # There is no entrypoint directory to drop SQL into, the way Postgres and MySQL have, so the
+  # bootstrap is a one-shot container that must complete before PowerSync starts.
+  mssql-setup:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64
+    restart: on-failure
+    depends_on:
+      mssql-db:
+        condition: service_healthy
+    environment:
+      MSSQL_SA_PASSWORD: *sa_password
+    volumes:
+      - ./examples/mssql/init-scripts/setup.sql:/scripts/setup.sql:ro
+    entrypoint:
+      - /bin/bash
+      - -c
+      - '/opt/mssql-tools18/bin/sqlcmd -S mssql-db -U sa -P "$$MSSQL_SA_PASSWORD" -C -b -i /scripts/setup.sql'
+
+  backend:
+    environment:
+      DATABASE_TYPE: mssql
+      DATABASE_URI: mssql://sa:Powersync_demo_pw1@mssql-db:1433/powersync_demo
+    depends_on:
+      mssql-setup:
+        condition: service_completed_successfully
+
+  powersync:
+    volumes:
+      - ./examples/mssql/powersync:/config
+    environment:
+      # Replication connects as the restricted user, not sa.
+      PS_DATA_SOURCE_URI: mssql://powersync_user:Powersync_demo_pw1@mssql-db:1433/powersync_demo
+    depends_on:
+      mssql-setup:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # These resolve in your browser, not on the compose network, so they are localhost —
+        # unlike every server-to-server URL here. Vite bakes them in at build time.
+        VITE_POWERSYNC_URL: http://localhost:8080
+        VITE_BACKEND_URL: http://localhost:6060
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "5173:4173"
+
+volumes:
+  mssql_data:

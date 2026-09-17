@@ -1,0 +1,710 @@
+================================================================================
+MANUAL TEST PLAN — write-api self-hosting starter
+================================================================================
+
+Every avenue the project claims to support, in an order that builds on itself.
+Work top to bottom, or jump to a section — each one says what state it assumes.
+
+Tick the [ ] as you go. Where a step has an expected result, it is marked with
+"->". If something differs from the "->" line, that is the bug, whether the
+fault is in the code or in the documentation.
+
+
+--------------------------------------------------------------------------------
+BEFORE YOU START
+--------------------------------------------------------------------------------
+
+[ ] Docker Desktop running, with at least 6 GB of memory allocated. SQL Server
+    alone wants ~2 GB and runs under emulation on Apple Silicon.
+
+[ ] Working from a clean checkout of this branch, at the repo root.
+
+[ ] Nothing already on ports 5173, 6060, 8080, 5432, 3306 or 1433:
+
+        lsof -nP -iTCP:6060 -iTCP:8080 -iTCP:5173 -sTCP:LISTEN
+
+    -> no output. If a stray backend from a previous run is there, kill it.
+
+[ ] Know the escape hatch. Any time you want to start over from nothing:
+
+        docker compose down -v --remove-orphans
+        docker ps -aq --filter "name=write-api-" | xargs -r docker rm -f
+
+    The second line matters because each mode is its own Compose project;
+    `down` only reaches the project currently named in .env.
+
+Rough timings on an M-series laptop, cold (image pulls included):
+  postgres  ~1 min      mongodb  ~1 min
+  mysql     ~2 min      mssql    ~5 min, and that is not a hang
+
+
+--------------------------------------------------------------------------------
+1. QUICKSTART — THE PATH IN THE README
+--------------------------------------------------------------------------------
+
+Assumes: nothing running. This is the "clone it and see it work" claim.
+
+[ ] Confirm .env is untouched from the checkout:
+
+        grep '^COMPOSE_FILE' .env
+
+    -> COMPOSE_FILE=docker-compose.yaml:examples/postgres/compose.yaml
+
+[ ] Bring it up with no other configuration at all:
+
+        docker compose up --build
+
+    -> images build, four containers plus the client come up, and the log
+       settles. You are looking for the write API's "Server is running" and
+       PowerSync reaching "Replication active" / no restart loop.
+
+[ ] In a second terminal:
+
+        curl -s http://localhost:6060/
+        curl -s http://localhost:8080/probes/liveness
+
+    -> {"message":"backend"} and a 200.
+
+[ ] Open http://localhost:5173
+
+    -> a todo list named "Getting Started" with two items, one ticked. If the
+       page loads but the list is empty, sync is broken — not the client.
+
+[ ] Add a todo in the UI.
+
+    -> it appears immediately (local write), and stays after a page refresh
+       (it round-tripped through the write API, into Postgres, and back out
+       through replication).
+
+[ ] Prove it really reached the source database, not just local storage:
+
+        docker compose exec pg-db psql -U postgres -d postgres \
+          -c "select description, completed from todos order by created_at desc limit 5;"
+
+    -> your new todo is the top row.
+
+[ ] Tick the todo's checkbox in the UI, re-run that query.
+
+    -> completed flipped to t. (PUT and PATCH both go through /api/data.)
+
+[ ] Delete a todo in the UI, re-run the query.
+
+    -> the row is gone. That is the third CRUD op exercised.
+
+Leave this running for section 2.
+
+
+--------------------------------------------------------------------------------
+2. THE API DIRECTLY, WITHOUT THE CLIENT
+--------------------------------------------------------------------------------
+
+Assumes: section 1 is up. This is how an adopter with their own client will
+actually drive it.
+
+[ ] Mint a token:
+
+        TOKEN=$(curl -s "http://localhost:6060/api/auth/token?user_id=manual" \
+          | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
+        echo "${TOKEN:0:24}..."
+
+    -> a JWT prefix, not empty.
+
+[ ] Check the key the service verifies against is being served:
+
+        curl -s http://localhost:6060/api/auth/keys
+
+    -> a JWKS document with one key, and a "kid".
+
+[ ] Write a transaction batch:
+
+        curl -s -X POST http://localhost:6060/api/data \
+          -H "Authorization: Bearer $TOKEN" \
+          -H 'content-type: application/json' \
+          -d '{"transactions":[{"transaction_id":1,"crud":[
+                {"op":"PUT","table":"todos","id":"11111111-1111-1111-1111-111111111111",
+                 "op_data":{"description":"manual test row","completed":false,
+                            "list_id":"75f89104-d95a-4f16-8309-5363f1bb377a"}}]}]}'
+
+    -> {"status":"success",...}
+
+[ ] Read it back out of the sync stream — this proves persistence AND
+    replication in one shot:
+
+        curl -sN -m 15 -X POST http://localhost:8080/sync/stream \
+          -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+          -d '{"buckets":[],"include_checksum":true,"raw_data":true}' \
+          | head -c 20000 | grep -c "manual test row"
+
+    -> 1 or more. (Ctrl-C if it hangs after printing; the stream stays open by
+       design.)
+
+[ ] Refresh http://localhost:5173
+
+    -> "manual test row" is in the list. A write made outside the client showed
+       up inside it.
+
+[ ] Now the contract. Send a request that violates openapi.yaml:
+
+        curl -s -X POST http://localhost:6060/api/data \
+          -H "Authorization: Bearer $TOKEN" \
+          -H 'content-type: application/json' \
+          -d '{"transactions":"not-an-array"}'
+
+    -> a 400 naming the offending field, from express-openapi-validator. Not a
+       500, and not a success.
+
+[ ] And auth. Same request, no token:
+
+        curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:6060/api/data \
+          -H 'content-type: application/json' -d '{"transactions":[]}'
+
+    -> 401.
+
+[ ] Tear down, keeping the volume:
+
+        docker compose down
+
+
+--------------------------------------------------------------------------------
+3. THE OTHER THREE EXAMPLE DATABASES
+--------------------------------------------------------------------------------
+
+Assumes: nothing running. Repeat this block per flavour. The point is that
+switching source database is ONE line in .env.
+
+For each flavour below:
+
+  a. Bring the current mode down FIRST (see section 4 for why):
+         docker compose down -v
+
+  b. Edit .env: comment out the current COMPOSE_FILE line, uncomment the one
+     for this flavour. Exactly one uncommented.
+
+  c. docker compose up --build
+
+  d. Wait for health:
+         curl -s http://localhost:6060/ && curl -s http://localhost:8080/probes/liveness
+
+  e. Open http://localhost:5173, add a todo, refresh.
+
+  f. Run the flavour's verification query below.
+
+--- 3a. MongoDB -----------------------------------------------------------------
+
+    COMPOSE_FILE=docker-compose.yaml:examples/mongodb/compose.yaml
+
+[ ] Note what is NOT there: no source database container. Replication points at
+    a second database on the same Mongo server that holds bucket storage.
+
+        docker compose ps --services
+
+    -> mongo, mongo-rs-init, backend, powersync, frontend. No "mongo-db".
+
+[ ] Open the client.
+
+    -> EMPTY. This is the one flavour that ships no seed data, deliberately.
+       An empty list here is correct, not a sync failure.
+
+[ ] Create a list in the UI, then add a todo to it.
+
+[ ] Verify:
+
+        docker compose exec mongo mongosh powersync_demo_source --quiet \
+          --eval 'db.todos.find({}, {description:1, completed:1}).toArray()'
+
+    -> your todo, with an _id.
+
+[ ] Confirm the two stores are genuinely separate databases:
+
+        docker compose exec mongo mongosh --quiet --eval 'db.adminCommand({listDatabases:1}).databases.map(d=>d.name)'
+
+    -> both powersync_demo_source and powersync_bucket_storage listed, distinct.
+
+[ ] Confirm the _id -> id projection works (this is what the sync rules do):
+    the todo you created is visible in the client after a refresh. If documents
+    sync but the client shows nothing, the projection is the suspect.
+
+--- 3b. MySQL (Beta) ------------------------------------------------------------
+
+    COMPOSE_FILE=docker-compose.yaml:examples/mysql/compose.yaml
+
+[ ] Client shows "Getting Started" with two todos. Add one.
+
+[ ] Verify:
+
+        docker compose exec mysql-db mysql -uroot -pmypassword powersync_demo \
+          -e "select description, completed from todos;"
+
+[ ] Confirm the binlog prerequisites actually took (this is what the root
+    README's table demands of an adopter's own MySQL):
+
+        docker compose exec mysql-db mysql -uroot -pmypassword \
+          -e "select @@log_bin, @@gtid_mode, @@enforce_gtid_consistency, @@binlog_format, @@binlog_row_image;"
+
+    -> 1, ON, ON, ROW, FULL.
+
+--- 3c. SQL Server (Beta) -------------------------------------------------------
+
+    COMPOSE_FILE=docker-compose.yaml:examples/mssql/compose.yaml
+
+[ ] Be patient on first start. The mssql-setup container must finish before
+    PowerSync starts; watch it:
+
+        docker compose logs -f mssql-setup
+
+    -> it runs the CDC bootstrap and exits 0. If it exits non-zero, nothing
+       downstream will work and that log is the whole story.
+
+[ ] Client shows "Getting Started" with two todos. Add one.
+
+[ ] Verify:
+
+        docker compose exec mssql-db /opt/mssql-tools18/bin/sqlcmd \
+          -S localhost -U sa -P 'Powersync_demo_pw1' -C -d powersync_demo \
+          -Q "select description, completed from dbo.todos"
+
+[ ] Confirm CDC is on AND the Agent is running — the pair of things that fail
+    silently together:
+
+        docker compose exec mssql-db /opt/mssql-tools18/bin/sqlcmd \
+          -S localhost -U sa -P 'Powersync_demo_pw1' -C -d powersync_demo \
+          -Q "select name, is_cdc_enabled from sys.databases where name='powersync_demo'"
+
+    -> is_cdc_enabled = 1.
+
+[ ] Finish with:
+
+        docker compose down -v
+
+
+--------------------------------------------------------------------------------
+4. SWITCHING MODES — INCLUDING GETTING IT WRONG
+--------------------------------------------------------------------------------
+
+Assumes: nothing running. This tests the warning in the README rather than the
+happy path, because this is the mistake everyone makes once.
+
+[ ] Select postgres in .env and bring it up:  docker compose up -d
+
+[ ] WITHOUT bringing it down, edit .env to select mysql, then:
+
+        docker compose up -d
+
+    -> it fails with something like
+       "Bind for 0.0.0.0:6060 failed: port is already allocated".
+       The postgres containers are still running, under their own project name.
+
+[ ] Confirm both projects exist:
+
+        docker ps --format '{{.Names}}' | sort
+
+    -> write-api-postgres-* containers still up.
+
+[ ] Recover the documented way: switch .env BACK to postgres, down, then
+    switch forward:
+
+        # .env -> postgres
+        docker compose down
+        # .env -> mysql
+        docker compose up -d
+
+    -> clean start.
+
+[ ] Confirm the projects really are isolated (so switching never reuses the
+    previous flavour's data):
+
+        docker volume ls | grep write-api
+
+    -> volumes are namespaced per project, e.g. write-api-postgres_pg_data and
+       write-api-mysql_mysql_data.
+
+[ ] Now the explicit form, with no .env involvement at all:
+
+        docker compose down
+        docker compose -f docker-compose.yaml -f examples/postgres/compose.yaml up -d
+        curl -s http://localhost:6060/
+
+    -> works identically. Then:
+        docker compose -f docker-compose.yaml -f examples/postgres/compose.yaml down
+
+
+--------------------------------------------------------------------------------
+5. CHANGING THE BACKEND CODE
+--------------------------------------------------------------------------------
+
+Assumes: nothing running. Two loops are claimed — the fast one and the
+deployment-shaped one. Test both.
+
+--- 5a. The development overlay (no rebuild) -----------------------------------
+
+[ ] In .env, append the dev overlay to the postgres line:
+
+        COMPOSE_FILE=docker-compose.yaml:examples/postgres/compose.yaml:docker-compose.dev.yaml
+
+[ ] docker compose up --build   (the build is only needed the first time)
+
+[ ] Confirm the backend is running under watch, not the built image:
+
+        docker compose logs backend | tail -20
+
+    -> tsx watch output, and "Server is running".
+
+[ ] Edit backend/app.ts — change the root route's body:
+
+        res.status(200).send({ message: 'backend' });
+          ->
+        res.status(200).send({ message: 'edited live' });
+
+[ ] Save, wait ~2 seconds, then:
+
+        curl -s http://localhost:6060/
+
+    -> {"message":"edited live"} with NO rebuild and NO restart command.
+
+[ ] Confirm node_modules were not clobbered by the bind mount (the macOS
+    native-binary trap):
+
+        docker compose exec backend node -e "require('pg'); console.log('deps ok')"
+
+    -> deps ok. A crash here means the host's node_modules leaked in.
+
+[ ] Revert the edit, confirm it reverts live.
+
+[ ] docker compose down
+
+--- 5b. The rebuild path -------------------------------------------------------
+
+[ ] Remove the dev overlay from the .env line, leaving plain postgres mode.
+
+[ ] docker compose up -d --build   then   curl -s http://localhost:6060/
+
+    -> {"message":"backend"} — the original, from the image.
+
+[ ] Edit backend/app.ts again to 'rebuilt', then WITHOUT rebuilding:
+
+        docker compose restart backend
+        curl -s http://localhost:6060/
+
+    -> still {"message":"backend"}. The image is what runs; a restart is not
+       enough. This is the point of the distinction.
+
+[ ] Now rebuild:
+
+        docker compose up -d --build backend
+        curl -s http://localhost:6060/
+
+    -> {"message":"rebuilt"}.
+
+[ ] Revert the edit and rebuild once more so the tree is clean.
+
+--- 5c. The client's own loop --------------------------------------------------
+
+[ ] With a mode up in Docker, run the client on the host instead:
+
+        cd frontend
+        cp .env.template .env.local
+        pnpm install && pnpm dev
+
+    -> http://localhost:5173 (Vite's own port) serves the same app, reading
+       .env.local at runtime, reloading on save. Note the containerised client
+       may also be on 5173 — stop it first, or expect Vite to pick 5174.
+
+[ ] Edit a label in the client source, save.
+
+    -> the browser updates without a rebuild.
+
+
+--------------------------------------------------------------------------------
+6. ADOPTER MODE — YOUR OWN DATABASE
+--------------------------------------------------------------------------------
+
+Assumes: nothing running. This is the real product; sections 1-3 are scaffolding.
+We fake "your own database" with a Postgres that this project does not manage.
+
+[ ] Start a database OUTSIDE the project, on a different port:
+
+        docker run -d --name adopter-db -p 5433:5432 \
+          -e POSTGRES_PASSWORD=adopterpw -e POSTGRES_DB=adopter \
+          postgres:18 -c wal_level=logical
+
+[ ] Prepare it the way the root README's table demands — schema, then the
+    publication that is easy to forget:
+
+        docker exec adopter-db psql -U postgres -d adopter -c \
+          "create table widgets (id uuid primary key default gen_random_uuid(), name text not null, owner_id uuid)"
+
+        docker exec adopter-db psql -U postgres -d adopter -c \
+          "insert into widgets (name, owner_id) values ('first widget', gen_random_uuid())"
+
+        docker exec adopter-db psql -U postgres -d adopter -c \
+          "create publication powersync for table widgets"
+
+[ ] Point the project at it. In .env:
+
+        COMPOSE_FILE=docker-compose.yaml
+        DATABASE_TYPE=postgres
+        DATABASE_URI=postgres://postgres:adopterpw@host.docker.internal:5433/adopter
+
+    (host.docker.internal, not localhost — inside a container localhost is the
+    container.)
+
+[ ] Describe the schema in config/sync-config.yaml — replace the commented
+    example under `streams:` with:
+
+        streams:
+          widgets:
+            auto_subscribe: true
+            queries:
+              - SELECT * FROM widgets
+
+[ ] docker compose up --build
+
+    -> backend, powersync, mongo (bucket storage) only. NO source database
+       container and NO client:
+
+        docker compose ps --services
+
+[ ] Prove the round trip without a client:
+
+        TOKEN=$(curl -s "http://localhost:6060/api/auth/token?user_id=manual" \
+          | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
+
+        curl -sN -m 15 -X POST http://localhost:8080/sync/stream \
+          -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+          -d '{"buckets":[],"include_checksum":true,"raw_data":true}' \
+          | head -c 20000 | grep -c "first widget"
+
+    -> 1 or more. Your own row, replicating.
+
+[ ] Write into your own table through the API:
+
+        curl -s -X POST http://localhost:6060/api/data \
+          -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+          -d '{"transactions":[{"transaction_id":1,"crud":[
+                {"op":"PUT","table":"widgets","id":"22222222-2222-2222-2222-222222222222",
+                 "op_data":{"name":"written by the API"}}]}]}'
+
+        docker exec adopter-db psql -U postgres -d adopter -c "select name from widgets;"
+
+    -> "written by the API" is there.
+
+[ ] THE IMPORTANT ONE — confirm we did not colonise your database:
+
+        docker exec adopter-db psql -U postgres -d adopter -c "\dn"
+        docker exec adopter-db psql -U postgres -d adopter \
+          -c "select tablename from pg_tables where schemaname='public';"
+
+    -> only your own schema and the widgets table. No powersync_* anything.
+       Bucket storage lives in this project's mongo container; check it is
+       genuinely there:
+
+        docker compose exec mongo mongosh --quiet \
+          --eval 'db.adminCommand({listDatabases:1}).databases.map(d=>d.name)'
+
+    -> powersync_bucket_storage present.
+
+[ ] Clean up when done with section 6 (keep adopter-db for section 7 if you
+    want, it costs nothing):
+
+        docker compose down -v
+
+
+--------------------------------------------------------------------------------
+7. FAILURE PATHS — THE MESSAGES SOMEONE WILL ACTUALLY HIT
+--------------------------------------------------------------------------------
+
+Assumes: Adopter Mode selected in .env, nothing running. Each of these is a
+mistake the docs promise to catch. If a message is unhelpful, that is a finding.
+
+[ ] Missing URI. Comment out DATABASE_URI in .env, then:
+
+        docker compose up backend
+
+    -> the backend exits, having printed a message that names DATABASE_URI,
+       shows the URI shape, AND offers the example-mode alternative. It must
+       NOT loop forever: it gives up after a handful of attempts so the message
+       stays on screen.
+
+[ ] Unsupported type. Restore DATABASE_URI, set DATABASE_TYPE=postgresql
+    (the near-miss spelling PowerSync's own config uses), then:
+
+        docker compose up backend
+
+    -> a message saying postgresql is not supported and listing exactly:
+       mongodb, mssql, mysql, postgres. Set it back to postgres afterwards.
+
+[ ] Empty sync rules. Blank out the `streams:` entries you added to
+    config/sync-config.yaml (leave the key with nothing under it), then:
+
+        docker compose up
+
+    -> PowerSync restarts in a loop logging that 'streams' are required. This
+       is documented as expected, not a bug — confirm the log actually says
+       something you could act on. Restore the file afterwards.
+
+[ ] Forgetting auto_subscribe. Restore the stream but DELETE the
+    `auto_subscribe: true` line, then restart:
+
+        docker compose up -d
+        docker compose restart powersync
+        # re-run the sync stream curl from section 6
+
+    -> zero rows come back, and NOTHING anywhere reports an error. This is the
+       silent failure the docs warn about; confirm with your own eyes that it
+       is silent, because that is why the warning exists. Restore the line.
+
+[ ] Unstable signing keys. Blank POWERSYNC_PRIVATE_KEY and POWERSYNC_PUBLIC_KEY
+    in .env, then:
+
+        docker compose up -d
+        # mint a token, then:
+        docker compose restart backend
+        # use the OLD token against the sync stream
+
+    -> PSYNC_S2101 "Could not find an appropriate key in the keystore". Now
+       generate a stable pair and confirm the failure goes away:
+
+        cd backend && pnpm generate-keys
+
+    -> prints both values; paste them into .env, `docker compose up -d`, and a
+       token survives a backend restart. Restore the committed pair when done,
+       or keep the new one — either is fine, they are both throwaway.
+
+
+--------------------------------------------------------------------------------
+8. THE TROUBLESHOOTING CLAIMS
+--------------------------------------------------------------------------------
+
+Assumes: postgres Example Mode, up. Each of these is an assertion in the
+README's troubleshooting section; each should be falsifiable.
+
+[ ] "Sync config changes do nothing — the service reads them at boot."
+    Edit examples/postgres/powersync/sync-config.yaml, narrowing the stream:
+
+        - SELECT * FROM lists
+        (delete the todos line)
+
+    -> the client still shows todos. Then:
+
+        docker compose restart powersync
+
+    -> after a refresh, todos are gone from the client, lists remain. Restore
+       the line and restart again.
+
+[ ] "Schema or seed changes do nothing — init scripts only run on first start."
+    Add a row to examples/postgres/init-scripts/setup.sql, then:
+
+        docker compose restart pg-db
+
+    -> the new row is absent. Then:
+
+        docker compose down -v && docker compose up -d
+
+    -> now it is there. Revert the SQL change.
+
+[ ] "Port already in use." Start something on 6060 on the host, then
+    `docker compose up`.
+
+    -> a bind error naming 6060. (`pnpm start` in backend/ is the realistic way
+       to cause this by accident.)
+
+
+--------------------------------------------------------------------------------
+9. THE AUTOMATED SUITES
+--------------------------------------------------------------------------------
+
+Assumes: nothing running; neither suite needs Docker running containers,
+though the root one shells out to `docker compose config`.
+
+[ ] Root suite — resolves every mode's topology without starting anything:
+
+        pnpm install && pnpm test
+
+    -> all green, in about a second. Nothing was pulled and nothing started;
+       confirm with `docker ps` before and after.
+
+[ ] Backend suite:
+
+        cd backend && pnpm test
+
+    -> all green. No Docker involved at all.
+
+[ ] Typecheck both:
+
+        cd backend && pnpm check
+
+[ ] Mutation-check the root suite, so you know it is load-bearing. In
+    examples/postgres/compose.yaml, change the powersync config mount target:
+
+        - ./examples/postgres/powersync:/config
+          ->
+        - ./examples/postgres/powersync:/config-typo
+
+    -> `pnpm test` at the root goes red, and says which mode broke. Revert.
+       (Without this guard the stack would come up perfectly healthy pointing
+       at the wrong sync rules — hence the test.)
+
+[ ] Contract generation still works from the shared spec:
+
+        cd backend && pnpm generate-types
+        cd ../frontend && pnpm generate
+        git status --short
+
+    -> no diff, i.e. the committed generated types match the contract.
+
+
+--------------------------------------------------------------------------------
+10. DELETING THE EXAMPLES
+--------------------------------------------------------------------------------
+
+Assumes: nothing running. The README invites an adopter to delete examples/
+in one go. This checks that the invitation is honest. Do this on a scratch
+branch or with the diff thrown away afterwards.
+
+[ ] git switch -c scratch/delete-examples
+
+[ ] rm -rf examples/ frontend/
+
+[ ] Set .env to Adopter Mode (COMPOSE_FILE=docker-compose.yaml) with the
+    adopter-db URI from section 6, and config/sync-config.yaml filled in.
+
+[ ] docker compose up --build
+
+    -> it comes up. Nothing in the base compose file, the backend, or config/
+       depended on the deleted directories.
+
+[ ] Read README.md as if for the first time.
+
+    -> the "Your database needs preparing first" table is still there and still
+       tells you what your own database needs, with no surviving link you must
+       follow into the deleted examples/ to be able to proceed. Any instruction
+       that now dead-ends is a documentation bug.
+
+[ ] cd backend && pnpm test    ->  still green.
+[ ] pnpm test  (root)          ->  the topology suite will fail, since the modes
+                                   it resolves are gone. Note whether that is
+                                   acceptable or should be handled.
+
+[ ] git switch - && git branch -D scratch/delete-examples
+
+
+--------------------------------------------------------------------------------
+TEARDOWN
+--------------------------------------------------------------------------------
+
+[ ] docker compose down -v --remove-orphans
+[ ] docker ps -aq --filter "name=write-api-" | xargs -r docker rm -f
+[ ] docker rm -f adopter-db
+[ ] git status --short    -> clean, apart from .env if you changed keys.
+
+
+--------------------------------------------------------------------------------
+NOTES / FINDINGS
+--------------------------------------------------------------------------------
+
+Section    What happened                                        Verdict
+-------    -------------------------------------------------    -------
+
+
+
+

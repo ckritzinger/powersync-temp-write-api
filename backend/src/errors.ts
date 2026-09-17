@@ -1,3 +1,13 @@
+/**
+ * The backend is misconfigured and cannot start. Carries a message written for whoever is running
+ * it, naming the fix rather than only the fault.
+ */
+export class ConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+  }
+}
+
 /** Transient failure (deadlock, timeout, connection error). Client should retry. */
 export class RetryableError extends Error {
   constructor(message: string) {
