@@ -2,7 +2,7 @@ import { v4 as uuid } from 'uuid';
 
 import type { AbstractPowerSyncDatabase, CrudTransaction, PowerSyncBackendConnector } from '@powersync/web';
 import { WriteAPIClient, type OnFatalError, type TransactionResult } from './WriteAPIClient';
-import { createOpenAPIClient, type OpenAPIClient } from './OpenAPITransport';
+import { AuthenticationError, createOpenAPIClient, DEFAULT_REQUEST_TIMEOUT_MS, type OpenAPIClient } from './OpenAPITransport';
 
 /**
  * Bounds on a transaction batch, plus what the backend should do with a fatally failed transaction.
@@ -18,6 +18,8 @@ export type DemoConfig = {
   powersyncUrl: string;
   /** `null` uploads one transaction per attempt, which is the default. */
   batching: BatchingConfig | null;
+  /** Abort a write API request that takes longer than this. */
+  requestTimeoutMs: number;
 };
 
 const USER_ID_STORAGE_KEY = 'ps_user_id';
@@ -71,6 +73,7 @@ export class DemoConnector implements PowerSyncBackendConnector {
 
   private _clientId: string | null;
   private _writeClient: WriteAPIClient | null;
+  private _authToken: string | null;
 
   constructor() {
     let userId = localStorage.getItem(USER_ID_STORAGE_KEY);
@@ -81,17 +84,37 @@ export class DemoConnector implements PowerSyncBackendConnector {
     this.userId = userId;
     this._clientId = null;
     this._writeClient = null;
+    this._authToken = null;
+
+    const requestTimeoutMs = Number(import.meta.env.VITE_REQUEST_TIMEOUT_MS ?? '');
 
     this.config = {
       backendUrl: import.meta.env.VITE_BACKEND_URL,
       powersyncUrl: import.meta.env.VITE_POWERSYNC_URL,
-      batching: readBatchingConfig()
+      batching: readBatchingConfig(),
+      requestTimeoutMs: Number.isInteger(requestTimeoutMs) && requestTimeoutMs > 0 ? requestTimeoutMs : DEFAULT_REQUEST_TIMEOUT_MS
     };
 
-    this.apiClient = createOpenAPIClient(this.config.backendUrl);
+    this.apiClient = createOpenAPIClient(this.config.backendUrl, {
+      timeoutMs: this.config.requestTimeoutMs,
+      getAuthToken: () => this.getAuthToken()
+    });
   }
 
   async fetchCredentials() {
+    // PowerSync calls this on connect and again whenever it decides the sync token needs
+    // refreshing, so route through the shared cache: every call here gets a fresh token, and the
+    // write API (via getAuthToken) piggybacks on it instead of fetching its own.
+    const token = await this.fetchAuthToken();
+    this._authToken = token;
+
+    return {
+      endpoint: this.config.powersyncUrl,
+      token
+    };
+  }
+
+  private async fetchAuthToken(): Promise<string> {
     const tokenEndpoint = 'api/auth/token';
     const res = await fetch(`${this.config.backendUrl}/${tokenEndpoint}?user_id=${this.userId}`);
 
@@ -100,11 +123,19 @@ export class DemoConnector implements PowerSyncBackendConnector {
     }
 
     const { token } = await res.json();
+    return token;
+  }
 
-    return {
-      endpoint: this.config.powersyncUrl,
-      token
-    };
+  /**
+   * The bearer token for write API requests. Reuses whatever fetchCredentials last fetched for the
+   * sync connection; fetches its own if nothing has been cached yet (e.g. before the first
+   * connect), or after {@link onTransportError} invalidated a rejected token.
+   */
+  private async getAuthToken(): Promise<string> {
+    if (!this._authToken) {
+      this._authToken = await this.fetchAuthToken();
+    }
+    return this._authToken;
   }
 
   /**
@@ -203,8 +234,15 @@ export class DemoConnector implements PowerSyncBackendConnector {
    * through {@link onRetryableError} so both failure kinds share one override point and the
    * transaction stays in the queue for retry. Override to distinguish transport failures from
    * in-band retryable errors.
+   *
+   * A rejected/expired token ({@link AuthenticationError}) is handled here too: the cached token is
+   * dropped so the next attempt's {@link getAuthToken} call fetches a fresh one before retrying.
    */
   protected async onTransportError(error: unknown): Promise<never> {
+    if (error instanceof AuthenticationError) {
+      this._authToken = null;
+    }
+
     const message = error instanceof Error ? error.message : String(error);
     return this.onRetryableError({ status: 'retryable_error', message });
   }

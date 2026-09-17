@@ -6,19 +6,65 @@ export interface OpenAPIClient {
   transport: WriteAPITransport;
 }
 
-export function createOpenAPIClient(baseUrl: string): OpenAPIClient {
+export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
+/** Thrown when the backend rejects a request as unauthenticated/unauthorized (401/403). */
+export class AuthenticationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AuthenticationError';
+  }
+}
+
+export interface OpenAPIClientOptions {
+  timeoutMs?: number;
+  /**
+   * Supplies the bearer token for each request. Called lazily per request, so a token refreshed
+   * elsewhere (e.g. after an AuthenticationError) is picked up on the very next call.
+   */
+  getAuthToken?: () => Promise<string>;
+}
+
+export function createOpenAPIClient(baseUrl: string, options: OpenAPIClientOptions = {}): OpenAPIClient {
+  const { timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, getAuthToken } = options;
   const client = createClient<paths>({ baseUrl });
+
+  if (getAuthToken) {
+    client.use({
+      async onRequest({ request }) {
+        const token = await getAuthToken();
+        request.headers.set('Authorization', `Bearer ${token}`);
+        return request;
+      }
+    });
+  }
 
   return {
     transport: {
       async postTransaction(body) {
-        const { data, error } = await client.POST('/api/data', { body });
-        if (error) throw new Error(`Failed to post transaction: ${error.message}`);
+        const { data, error, response } = await client.POST('/api/data', {
+          body,
+          signal: AbortSignal.timeout(timeoutMs)
+        });
+        if (error) {
+          if (response.status === 401 || response.status === 403) {
+            throw new AuthenticationError(`Authentication failed (${response.status}) posting transaction`);
+          }
+          throw new Error(`Failed to post transaction: ${error.message}`);
+        }
         return data;
       },
       async postTransactionBatch(body) {
-        const { data, error } = await client.POST('/api/data/batch', { body });
-        if (error) throw new Error(`Failed to post transaction batch: ${error.message}`);
+        const { data, error, response } = await client.POST('/api/data/batch', {
+          body,
+          signal: AbortSignal.timeout(timeoutMs)
+        });
+        if (error) {
+          if (response.status === 401 || response.status === 403) {
+            throw new AuthenticationError(`Authentication failed (${response.status}) posting transaction batch`);
+          }
+          throw new Error(`Failed to post transaction batch: ${error.message}`);
+        }
         return data;
       }
     }
