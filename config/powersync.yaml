@@ -1,0 +1,25 @@
+telemetry:
+  disable_telemetry_sharing: false
+
+replication:
+  connections:
+    - type: postgresql
+      uri: !env PS_DATA_SOURCE_URI
+      sslmode: disable
+
+storage:
+  type: mongodb
+  uri: !env PS_MONGO_URI
+
+port: !env PS_PORT
+
+sync_rules:
+  path: sync_rules.yaml
+
+client_auth:
+  jwks_uri: !env PS_JWKS_URL
+  audience: ["powersync-dev", "powersync"]
+
+api:
+  tokens:
+    - use_a_better_token_in_production

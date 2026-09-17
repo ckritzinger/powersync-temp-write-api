@@ -1,0 +1,18 @@
+# Local AI-agent tooling and working notes. Personal to each clone — not part of the project.
+#
+# Project documentation stays tracked: CONTEXT.md (domain glossary), docs/adr/ (architecture
+# decisions) and docs/diagrams/ are shared, and committed code links to them.
+
+# Agent configuration and skill libraries
+.agents/
+.claude/
+skills-lock.json
+
+# Agent-facing conventions (issue tracker, triage labels, domain-doc layout)
+docs/agents/
+
+# Local issue tracker: specs, tickets and scratch notes
+.scratch/
+
+# Per-repo agent instructions
+CLAUDE.md
