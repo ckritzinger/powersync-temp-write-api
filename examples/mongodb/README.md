@@ -42,6 +42,23 @@ Without the projection documents still sync, but arrive without the identifier t
 system keys on. `*` carries `_id` through as well — harmless, since the client ignores columns it
 does not declare.
 
+## Pointing at your own MongoDB instead
+
+You do not need this example for that. Switch to Adopter Mode in `.env` and set `DATABASE_URI` to
+your own server. The requirements above still apply:
+
+- **A replica set.** Atlas gives you one automatically. A self-managed single node needs
+  `rs.initiate()` before change streams or transactions work at all.
+- **Post-images.** Set `post_images: auto_configure` in `config/service.yaml`, and make sure the
+  replication user can configure `changeStreamPreAndPostImages` on the replicated collections.
+- **Privileges.** `changeStream` at database level, plus read on the collections you replicate.
+
+**Azure DocumentDB** uses this same connector, but does **not** support post-images — set
+`post_images: off` there.
+
+Bucket storage does not go into your server. Even here, where the example shares one Mongo process
+between source and storage, Adopter Mode keeps storage in a container this project owns.
+
 ## Gotchas
 
 The write API stores `_id` as the **string** id the client generated, not an `ObjectId`. That is

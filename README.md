@@ -37,6 +37,22 @@ DATABASE_TYPE=postgres
 DATABASE_URI=postgres://user:password@your-host:5432/your-db
 ```
 
+### Your database needs preparing first
+
+PowerSync replicates by reading your database's change feed, and every flavour needs that turned
+on before anything syncs. This is the part that silently produces an empty app if skipped.
+
+| Flavour | What must be true of your database |
+| --- | --- |
+| **Postgres** | `wal_level=logical`; a publication named `powersync` covering the replicated tables; a user with `SELECT` on them and replication rights. **A Postgres source without a publication replicates nothing.** |
+| **MongoDB** | A replica set — change streams and the multi-document transactions the write API uses both require one. Post-images configured (`post_images: auto_configure`), since change streams alone do not carry the pre-update document. |
+| **MySQL** | `log_bin` on, `gtid_mode=ON`, `enforce_gtid_consistency=ON`, `binlog_format=ROW`, `binlog_row_image=FULL`, a unique `server-id`; a user with `REPLICATION SLAVE` and `SELECT`. On managed MySQL these usually live in a parameter group and need a restart. |
+| **SQL Server** | CDC enabled at database level and per replicated table; a CDC-enabled `_powersync_checkpoints` table; SQL Server Agent **running**, or CDC captures nothing while appearing enabled; the user needs `cdc_reader`, `VIEW DATABASE PERFORMANCE STATE` in the database, and `VIEW SERVER PERFORMANCE STATE` in `master`. |
+
+Each `examples/<flavour>/README.md` has the worked SQL and the managed-hosting wrinkles. Those
+live under `examples/`, which you are invited to delete — so the table above is the version that
+survives that, deliberately.
+
 Then describe your own schema in `config/service.yaml` and `config/sync-config.yaml`. Those two
 files are yours from the first minute — no example ever writes to them.
 
