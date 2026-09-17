@@ -11,7 +11,6 @@ export const db = new PowerSyncDatabase({
   database: {
     dbFilename: 'example.db'
   },
-  crudUploadThrottleMs: 10000,
   schema: AppSchema,
   logger: Logger
 });

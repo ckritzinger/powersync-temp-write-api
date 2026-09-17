@@ -42,11 +42,11 @@ DATABASE_URI=postgres://user:password@your-host:5432/your-db
 PowerSync replicates by reading your database's change feed, and every flavour needs that turned
 on before anything syncs. This is the part that silently produces an empty app if skipped.
 
-| Flavour | What must be true of your database |
-| --- | --- |
-| **Postgres** | `wal_level=logical`; a publication named `powersync` covering the replicated tables; a user with `SELECT` on them and replication rights. **A Postgres source without a publication replicates nothing.** |
-| **MongoDB** | A replica set — change streams and the multi-document transactions the write API uses both require one. Post-images configured (`post_images: auto_configure`), since change streams alone do not carry the pre-update document. |
-| **MySQL** | `log_bin` on, `gtid_mode=ON`, `enforce_gtid_consistency=ON`, `binlog_format=ROW`, `binlog_row_image=FULL`, a unique `server-id`; a user with `REPLICATION SLAVE` and `SELECT`. On managed MySQL these usually live in a parameter group and need a restart. |
+| Flavour        | What must be true of your database                                                                                                                                                                                                                                                                                    |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Postgres**   | a publication named `powersync` covering the replicated tables; a user with `SELECT` on them and replication rights. **A Postgres source without a publication replicates nothing.**                                                                                                                                  |
+| **MongoDB**    | A replica set — change streams and the multi-document transactions the write API uses both require one. Post-images configured (`post_images: auto_configure`), since change streams alone do not carry the pre-update document.                                                                                      |
+| **MySQL**      | `log_bin` on, `gtid_mode=ON`, `enforce_gtid_consistency=ON`, `binlog_format=ROW`, `binlog_row_image=FULL`, a unique `server-id`; a user with `REPLICATION SLAVE` and `SELECT`. On managed MySQL these usually live in a parameter group and need a restart.                                                           |
 | **SQL Server** | CDC enabled at database level and per replicated table; a CDC-enabled `_powersync_checkpoints` table; SQL Server Agent **running**, or CDC captures nothing while appearing enabled; the user needs `cdc_reader`, `VIEW DATABASE PERFORMANCE STATE` in the database, and `VIEW SERVER PERFORMANCE STATE` in `master`. |
 
 Each `examples/<flavour>/README.md` has the worked SQL and the managed-hosting wrinkles. Those
@@ -74,13 +74,13 @@ In Adopter Mode there is no bundled database and no demo client. Bring your own 
 Mode selection is the `COMPOSE_FILE` line in `.env`, with the alternatives sitting there commented
 out. The command stays a plain `docker compose up`, so `down`, `logs` and `ps` behave normally.
 
-| `.env` line | What runs |
-| --- | --- |
-| `docker-compose.yaml:examples/postgres/compose.yaml` | Example Mode, [Postgres](./examples/postgres/README.md) |
-| `docker-compose.yaml:examples/mongodb/compose.yaml` | Example Mode, [MongoDB](./examples/mongodb/README.md) |
-| `docker-compose.yaml:examples/mysql/compose.yaml` | Example Mode, [MySQL](./examples/mysql/README.md) (Beta) |
-| `docker-compose.yaml:examples/mssql/compose.yaml` | Example Mode, [SQL Server](./examples/mssql/README.md) (Beta) |
-| `docker-compose.yaml` | Adopter Mode, your database |
+| `.env` line                                          | What runs                                                     |
+| ---------------------------------------------------- | ------------------------------------------------------------- |
+| `docker-compose.yaml:examples/postgres/compose.yaml` | Example Mode, [Postgres](./examples/postgres/README.md)       |
+| `docker-compose.yaml:examples/mongodb/compose.yaml`  | Example Mode, [MongoDB](./examples/mongodb/README.md)         |
+| `docker-compose.yaml:examples/mysql/compose.yaml`    | Example Mode, [MySQL](./examples/mysql/README.md) (Beta)      |
+| `docker-compose.yaml:examples/mssql/compose.yaml`    | Example Mode, [SQL Server](./examples/mssql/README.md) (Beta) |
+| `docker-compose.yaml`                                | Adopter Mode, your database                                   |
 
 Only one runs at a time — they share ports, and each has its own Compose project name so switching
 never reuses the previous flavour's volumes.
@@ -159,20 +159,6 @@ cd backend && pnpm generate-keys      # prints both values for .env
 > The signing keys in `.env` are a **public throwaway pair**, committed so the backend signs
 > consistently across restarts. Replace them before this is anything but a demo.
 
-## Tests
-
-```bash
-pnpm install && pnpm test          # repo root: the resolved compose topology
-cd backend && pnpm test            # the write API
-```
-
-The root suite asks Compose to *resolve* each mode rather than run it — no containers start and no
-images are pulled, so it takes about a second. It exists because the two mechanisms holding the
-mode switch together fail silently: if an example's config mount appended to the base's instead of
-replacing it, the stack would come up perfectly healthy pointing at the wrong sync rules.
-
-The backend's own suite needs no Docker.
-
 ## Generating types from the contract
 
 Both packages generate TypeScript from `backend/openapi.yaml`:
@@ -181,14 +167,3 @@ Both packages generate TypeScript from `backend/openapi.yaml`:
 cd backend && pnpm generate-types   # -> src/generated/api.ts
 cd frontend && pnpm generate        # -> src/generated/api.d.ts
 ```
-
-## Troubleshooting
-
-**`ports are not available: ... 6060: bind: address already in use`** — something on the host is
-already using the port, commonly a backend started with `pnpm start`. Stop it; the containerised
-backend needs 6060.
-
-**Sync config changes do nothing** — the service reads them at boot. `docker compose restart powersync`.
-
-**Schema or seed changes do nothing** — init scripts only run on a database's first start.
-`docker compose down -v` to drop the volume, then up again.
