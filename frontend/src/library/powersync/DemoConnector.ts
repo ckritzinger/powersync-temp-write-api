@@ -2,7 +2,7 @@ import { v4 as uuid } from 'uuid';
 
 import type { AbstractPowerSyncDatabase, CrudTransaction, PowerSyncBackendConnector } from '@powersync/web';
 import { WriteAPIClient, type OnFatalError, type TransactionResult } from './WriteAPIClient';
-import { createOpenAPIClient, type OpenAPIClient } from './OpenAPITransport';
+import { AuthenticationError, createOpenAPIClient, DEFAULT_REQUEST_TIMEOUT_MS, type OpenAPIClient } from './OpenAPITransport';
 
 /**
  * Bounds on a transaction batch, plus what the backend should do with a fatally failed transaction.
@@ -16,18 +16,17 @@ export type BatchingConfig = {
 export type DemoConfig = {
   backendUrl: string;
   powersyncUrl: string;
-  batching: BatchingConfig;
+  /** `null` uploads one transaction per attempt, which is the default. */
+  batching: BatchingConfig | null;
+  /** Abort a write API request that takes longer than this. */
+  requestTimeoutMs: number;
 };
 
 const USER_ID_STORAGE_KEY = 'ps_user_id';
 
-/**
- * Batching is not a mode — there is one upload path and one endpoint, and these only bound how much
- * of the queue it takes per request. Set VITE_BATCH_MAX_TRANSACTIONS=1 for one transaction per
- * round-trip, which is what the demo did before the single-transaction endpoint was removed.
- */
-const DEFAULT_MAX_TRANSACTIONS = 10;
 const DEFAULT_MAX_OPERATIONS = 1000;
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * The completion boundary: the index of the last transaction the client may complete through, or
@@ -51,13 +50,17 @@ export const completionBoundary = (results: Pick<TransactionResult, 'status'>[])
   return boundary;
 };
 
-const readBatchingConfig = (): BatchingConfig => {
+const readBatchingConfig = (): BatchingConfig | null => {
   const maxTransactions = Number(import.meta.env.VITE_BATCH_MAX_TRANSACTIONS ?? '');
+
+  if (!Number.isInteger(maxTransactions) || maxTransactions < 1) {
+    return null;
+  }
+
   const maxOperations = Number(import.meta.env.VITE_BATCH_MAX_OPERATIONS ?? '');
 
   return {
-    maxTransactions:
-      Number.isInteger(maxTransactions) && maxTransactions > 0 ? maxTransactions : DEFAULT_MAX_TRANSACTIONS,
+    maxTransactions,
     maxOperations: Number.isInteger(maxOperations) && maxOperations > 0 ? maxOperations : DEFAULT_MAX_OPERATIONS,
     onFatalError: import.meta.env.VITE_BATCH_ON_FATAL_ERROR === 'skip' ? 'skip' : 'stop'
   };
@@ -70,7 +73,7 @@ export class DemoConnector implements PowerSyncBackendConnector {
 
   private _clientId: string | null;
   private _writeClient: WriteAPIClient | null;
-  private _writeToken: string | null;
+  private _authToken: string | null;
 
   constructor() {
     let userId = localStorage.getItem(USER_ID_STORAGE_KEY);
@@ -81,24 +84,37 @@ export class DemoConnector implements PowerSyncBackendConnector {
     this.userId = userId;
     this._clientId = null;
     this._writeClient = null;
-    this._writeToken = null;
+    this._authToken = null;
+
+    const requestTimeoutMs = Number(import.meta.env.VITE_REQUEST_TIMEOUT_MS ?? '');
 
     this.config = {
       backendUrl: import.meta.env.VITE_BACKEND_URL,
       powersyncUrl: import.meta.env.VITE_POWERSYNC_URL,
-      batching: readBatchingConfig()
+      batching: readBatchingConfig(),
+      requestTimeoutMs: Number.isInteger(requestTimeoutMs) && requestTimeoutMs > 0 ? requestTimeoutMs : DEFAULT_REQUEST_TIMEOUT_MS
     };
 
     this.apiClient = createOpenAPIClient(this.config.backendUrl, {
-      getToken: () => this.getWriteToken(),
-      // Token rejected, drop it so the next write fetches a fresh one.
-      onUnauthorized: () => {
-        this._writeToken = null;
-      }
+      timeoutMs: this.config.requestTimeoutMs,
+      getAuthToken: () => this.getAuthToken()
     });
   }
 
   async fetchCredentials() {
+    // PowerSync calls this on connect and again whenever it decides the sync token needs
+    // refreshing, so route through the shared cache: every call here gets a fresh token, and the
+    // write API (via getAuthToken) piggybacks on it instead of fetching its own.
+    const token = await this.fetchAuthToken();
+    this._authToken = token;
+
+    return {
+      endpoint: this.config.powersyncUrl,
+      token
+    };
+  }
+
+  private async fetchAuthToken(): Promise<string> {
     const tokenEndpoint = 'api/auth/token';
     const res = await fetch(`${this.config.backendUrl}/${tokenEndpoint}?user_id=${this.userId}`);
 
@@ -107,22 +123,27 @@ export class DemoConnector implements PowerSyncBackendConnector {
     }
 
     const { token } = await res.json();
-
-    // The write API accepts the same token PowerSync sync uses, cache it so
-    // writes reuse it instead of minting their own.
-    this._writeToken = token;
-
-    return {
-      endpoint: this.config.powersyncUrl,
-      token
-    };
+    return token;
   }
 
-  private async getWriteToken(): Promise<string> {
-    if (!this._writeToken) {
-      await this.fetchCredentials();
+  /**
+   * The bearer token for write API requests. Reuses whatever fetchCredentials last fetched for the
+   * sync connection; fetches its own if nothing has been cached yet (e.g. before the first
+   * connect), or after {@link onTransportError} invalidated a rejected token.
+   */
+  private async getAuthToken(): Promise<string> {
+    if (!this._authToken) {
+      this._authToken = await this.fetchAuthToken();
     }
-    return this._writeToken!;
+    return this._authToken;
+  }
+
+  /**
+   * The batching config to use for the current upload. Reads the env-derived default; override to
+   * make batching dynamic (e.g. shrink batch size after a fatal error, adjust for network conditions).
+   */
+  protected getBatchingConfig(): BatchingConfig | null {
+    return this.config.batching;
   }
 
   private async getWriteClient(database: AbstractPowerSyncDatabase): Promise<WriteAPIClient> {
@@ -136,12 +157,97 @@ export class DemoConnector implements PowerSyncBackendConnector {
     return this._writeClient;
   }
 
-  /**
-   * Take a run of whole transactions from the head of the upload queue and upload them in one
-   * request. A single queued transaction is a batch of one — there is no separate path for it.
-   */
   async uploadData(database: AbstractPowerSyncDatabase): Promise<void> {
-    const batching = this.config.batching;
+    const batching = this.getBatchingConfig();
+    if (batching) {
+      return this.uploadTransactionBatch(database, batching);
+    }
+
+    return this.uploadSingleTransaction(database);
+  }
+
+  /**
+   * Upload one transaction per attempt. This is the default path and is unchanged by batching.
+   */
+  private async uploadSingleTransaction(database: AbstractPowerSyncDatabase): Promise<void> {
+    const transaction = await database.getNextCrudTransaction();
+    if (!transaction) return;
+
+    this._clientId = await database.getClientId();
+    const writeClient = await this.getWriteClient(database);
+
+    let result: TransactionResult;
+    try {
+      result = await writeClient.processTransaction(transaction);
+    } catch (error) {
+      await this.onTransportError(error);
+      return;
+    }
+
+    switch (result.status) {
+      case 'success':
+        await transaction.complete();
+        break;
+      case 'fatal_error':
+        // Instead of blocking the queue with this error, discard the (rest of the)
+        // transaction. See onFatalTransaction for what happens to the discarded data.
+        await this.onFatalTransaction(transaction, result);
+        await transaction.complete();
+        break;
+      case 'retryable_error':
+        await this.onRetryableError(result);
+        break;
+      default:
+        //`not_attempted` only ever describes an entry in a batch result
+        throw new Error(`Unexpected upload status: ${result.status}`);
+    }
+  }
+
+  /**
+   * Called when the backend permanently rejects a transaction (a bug in the application, not a
+   * transient failure). The transaction is discarded and the queue moves on regardless of what
+   * this method does.
+   *
+   * Default behaviour is to log and drop the data. Dead-lettering should happen server-side, where
+   * the failed write can actually be inspected and fixed — a client-side dead-letter queue is opaque
+   * to that process. Override to alert someone or forward `result` to a backend endpoint, not to
+   * store it locally.
+   */
+  protected async onFatalTransaction(transaction: CrudTransaction, result: TransactionResult): Promise<void> {
+    console.error('Fatal error:', result.failedOperation?.error_code, result.message);
+  }
+
+  /**
+   * Called for a transient, in-band failure (the backend responded with `retryable_error`).
+   * Default behaviour waits out the backend's requested `retryAfterMs` (if any) and then throws,
+   * which causes PowerSync to retry the upload. Override to add custom logging/backoff, but a
+   * retryable error must still result in a thrown error so the transaction stays in the queue.
+   */
+  protected async onRetryableError(result: TransactionResult): Promise<never> {
+    await sleep(result.retryAfterMs ?? 0);
+    throw new Error(result.message ?? 'Retryable error');
+  }
+
+  /**
+   * Called for a transport-level failure (network error, timeout, non-2xx response) — the backend
+   * was never reached or never returned a classified result at all. Default behaviour routes it
+   * through {@link onRetryableError} so both failure kinds share one override point and the
+   * transaction stays in the queue for retry. Override to distinguish transport failures from
+   * in-band retryable errors.
+   *
+   * A rejected/expired token ({@link AuthenticationError}) is handled here too: the cached token is
+   * dropped so the next attempt's {@link getAuthToken} call fetches a fresh one before retrying.
+   */
+  protected async onTransportError(error: unknown): Promise<never> {
+    if (error instanceof AuthenticationError) {
+      this._authToken = null;
+    }
+
+    const message = error instanceof Error ? error.message : String(error);
+    return this.onRetryableError({ status: 'retryable_error', message });
+  }
+
+  private async uploadTransactionBatch(database: AbstractPowerSyncDatabase, batching: BatchingConfig): Promise<void> {
     const batch: CrudTransaction[] = [];
     let operations = 0;
 
@@ -160,22 +266,22 @@ export class DemoConnector implements PowerSyncBackendConnector {
 
     this._clientId = await database.getClientId();
     const writeClient = await this.getWriteClient(database);
-    const { results } = await writeClient.processTransactionBatch(batch, batching.onFatalError);
 
-    // Report everything the backend dropped *before* completing over it.
-    //
-    // These errors typically indicate a bug in the application. If protecting against data loss is
-    // important, save the failing records elsewhere instead of discarding, and/or notify the user.
-    //
-    results.forEach((result, index) => {
+    let results: TransactionResult[];
+    try {
+      ({ results } = await writeClient.processTransactionBatch(batch, batching.onFatalError));
+    } catch (error) {
+      await this.onTransportError(error);
+      return;
+    }
+
+    // Report everything the backend dropped *before* completing over it, via the same
+    // overridable hook the single-transaction path uses.
+    for (const [index, result] of results.entries()) {
       if (result.status === 'fatal_error') {
-        console.error(
-          `Fatal error on transaction ${index} of ${results.length}:`,
-          result.failedOperation?.error_code,
-          result.message
-        );
+        await this.onFatalTransaction(batch[index], result);
       }
-    });
+    }
 
     // One completion per batch, at the completion boundary. Completing a transaction also completes
     // every transaction before it, so completing each success in turn would be redundant.
@@ -188,7 +294,7 @@ export class DemoConnector implements PowerSyncBackendConnector {
     // the retry resumes from the failure instead of re-uploading transactions that already committed.
     const retryable = results.find((result) => result.status === 'retryable_error');
     if (retryable) {
-      throw new Error(retryable.message ?? 'Retryable error');
+      await this.onRetryableError(retryable);
     }
   }
 }
