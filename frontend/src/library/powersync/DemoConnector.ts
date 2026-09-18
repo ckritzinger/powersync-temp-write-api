@@ -26,6 +26,12 @@ const USER_ID_STORAGE_KEY = 'ps_user_id';
 
 const DEFAULT_MAX_OPERATIONS = 1000;
 
+const DEFAULT_BATCHING_CONFIG: BatchingConfig = {
+  maxTransactions: 1,
+  maxOperations: DEFAULT_MAX_OPERATIONS,
+  onFatalError: 'skip'
+};
+
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
@@ -142,8 +148,8 @@ export class DemoConnector implements PowerSyncBackendConnector {
    * The batching config to use for the current upload. Reads the env-derived default; override to
    * make batching dynamic (e.g. shrink batch size after a fatal error, adjust for network conditions).
    */
-  protected getBatchingConfig(): BatchingConfig | null {
-    return this.config.batching;
+  protected getBatchingConfig(): BatchingConfig  {
+    return this.config.batching || DEFAULT_BATCHING_CONFIG;
   }
 
   private async getWriteClient(database: AbstractPowerSyncDatabase): Promise<WriteAPIClient> {
@@ -159,49 +165,9 @@ export class DemoConnector implements PowerSyncBackendConnector {
 
   async uploadData(database: AbstractPowerSyncDatabase): Promise<void> {
     const batching = this.getBatchingConfig();
-    if (batching) {
-      return this.uploadTransactionBatch(database, batching);
-    }
-
-    return this.uploadSingleTransaction(database);
+    return this.uploadTransactionBatch(database, batching);
   }
 
-  /**
-   * Upload one transaction per attempt. This is the default path and is unchanged by batching.
-   */
-  private async uploadSingleTransaction(database: AbstractPowerSyncDatabase): Promise<void> {
-    const transaction = await database.getNextCrudTransaction();
-    if (!transaction) return;
-
-    this._clientId = await database.getClientId();
-    const writeClient = await this.getWriteClient(database);
-
-    let result: TransactionResult;
-    try {
-      result = await writeClient.processTransaction(transaction);
-    } catch (error) {
-      await this.onTransportError(error);
-      return;
-    }
-
-    switch (result.status) {
-      case 'success':
-        await transaction.complete();
-        break;
-      case 'fatal_error':
-        // Instead of blocking the queue with this error, discard the (rest of the)
-        // transaction. See onFatalTransaction for what happens to the discarded data.
-        await this.onFatalTransaction(transaction, result);
-        await transaction.complete();
-        break;
-      case 'retryable_error':
-        await this.onRetryableError(result);
-        break;
-      default:
-        //`not_attempted` only ever describes an entry in a batch result
-        throw new Error(`Unexpected upload status: ${result.status}`);
-    }
-  }
 
   /**
    * Called when the backend permanently rejects a transaction (a bug in the application, not a

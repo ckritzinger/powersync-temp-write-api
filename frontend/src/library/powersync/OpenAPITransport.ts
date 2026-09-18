@@ -31,7 +31,7 @@ export function createOpenAPIClient(baseUrl: string, options: OpenAPIClientOptio
 
   if (getAuthToken) {
     client.use({
-      async onRequest({ request }) {
+      async onRequest({ request }: { request: Request }) {
         const token = await getAuthToken();
         request.headers.set('Authorization', `Bearer ${token}`);
         return request;
@@ -41,21 +41,8 @@ export function createOpenAPIClient(baseUrl: string, options: OpenAPIClientOptio
 
   return {
     transport: {
-      async postTransaction(body) {
-        const { data, error, response } = await client.POST('/api/data', {
-          body,
-          signal: AbortSignal.timeout(timeoutMs)
-        });
-        if (error) {
-          if (response.status === 401 || response.status === 403) {
-            throw new AuthenticationError(`Authentication failed (${response.status}) posting transaction`);
-          }
-          throw new Error(`Failed to post transaction: ${error.message}`);
-        }
-        return data;
-      },
       async postTransactionBatch(body) {
-        const { data, error, response } = await client.POST('/api/data/batch', {
+        const { data, error, response } = await client.POST('/api/data', {
           body,
           signal: AbortSignal.timeout(timeoutMs)
         });
