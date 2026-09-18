@@ -44,13 +44,13 @@ For the API to be usable, you need to perform the following config:
 2. Set `DATABASE_TYPE`, `DATABASE_URI`, `POWERSYNC_URL`, and `JWT_ISSUER` in `.env` to point at
    that database and match your PowerSync instance's auth settings (audience/issuer).
 
-3. **Your client needs to reach this backend.** `localhost:6060` only works if the client runs on
-   this same machine. Otherwise either bind the backend to `0.0.0.0` and put a client on the same
-   network, or tunnel it (e.g. `ngrok http 6060`) and point the client at the public URL instead.
-
-4. **Your client needs code to actually call this backend.** Nothing calls `/api/data` for you —
+3. **Your client needs code to actually call this backend.** Nothing calls `/api/data` for you —
    copy the pieces in `example-client/` into your app to perform writes. See
    `example-client/README.md` for detailed instructions.
+
+4. **Your client needs to reach this backend.** `localhost:6060` only works if the client runs on
+   this same machine. Otherwise either bind the backend to `0.0.0.0` and put a client on the same
+   network, or tunnel it (e.g. `ngrok http 6060`) and point the client at the public URL instead.
 
 > If your database runs on this machine rather than in Docker, the backend reaches it at
 > `host.docker.internal`, not `localhost` — inside a container, `localhost` is the container.
@@ -62,10 +62,9 @@ write-api/
 ├── docker-compose.yaml       # The write API, standalone
 ├── docker-compose.dev.yaml   # Overlay: edit backend code without rebuilding
 ├── .env                      # Backend config and throwaway dev keys
-├── backend/                  # The write API (Express, port 6060) — this is the product
+├── backend/                  # The write API (Express, port 6060)
 │   └── openapi.yaml          # The write API's contract, also consumed by example-client/
-├── example-client/           # Minimum PowerSync-client code that calls the write API — read-only
-│                              # reference, not a runnable project
+├── example-client/           # Minimum PowerSync-client code that calls the write API
 └── docs/
     ├── auth-verifiers.md     # Swapping demo auth for Supabase/Clerk/your own IdP
     ├── authorization.md      # Wiring in real authorization — there is none by default
@@ -82,7 +81,7 @@ COMPOSE_FILE=docker-compose.yaml:docker-compose.dev.yaml
 docker compose up
 ```
 
-Your working tree is mounted into the container and the process restarts on save. 
+Your working tree is mounted into the container and the process restarts on save.
 
 Or skip Docker entirely and run `pnpm dev` on the host (see `backend/README.md`).
 
