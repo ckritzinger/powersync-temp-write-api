@@ -6,9 +6,20 @@ to clients.
 
 Clone it, point it at your own database and PowerSync instance, and change the code.
 
-This repo assumes a **hosted PowerSync instance** ([PowerSync Cloud](https://www.powersync.com/) or
-your own self-managed deployment elsewhere) and a **database you already run**. It does not bundle
-either.
+This repo assumes you already have:
+
+1. A **hosted PowerSync instance** ([PowerSync Cloud](https://www.powersync.com/) or your own
+   self-managed deployment elsewhere) connected to a **database you already run**. It does not
+   bundle either of these.
+
+2. A front-end already connected to PowerSync, displaying local data, and updating its local
+   SQLite database with data mutations via `db.execute(...)`, as described in the
+   [PowerSync Setup Guide](https://docs.powersync.com/intro/setup-guide#write-data).
+
+PowerSync automatically queues these mutations and calls your `uploadData()` function, which is
+where you upload the changes to your backend. The write API is that backend: it persists the
+mutations to your source database. The `example-client` folder has a reference implementation of
+`uploadData()` that connects to this API.
 
 ## Quickstart
 
@@ -16,37 +27,33 @@ either.
 docker compose up --build
 ```
 
-Brings up the write API alone, at http://localhost:6060. On its own it has nothing to write to —
-before it's useful you need:
+Brings up the write API at http://localhost:6060
 
-1. **A database**, with replication already turned on so PowerSync can read its change feed. Set
-   `DATABASE_TYPE` and `DATABASE_URI` in `.env`. Every database flavour needs something enabled
-   before it replicates at all:
+### Configuration
 
-   | Flavour        | What must be true of your database                                                                                                                                                                                                                                                                                    |
-   | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-   | **Postgres**   | a publication named `powersync` covering the replicated tables; a user with `SELECT` on them and replication rights. **A Postgres source without a publication replicates nothing.**                                                                                                                                  |
-   | **MongoDB**    | A replica set — change streams and the multi-document transactions the write API uses both require one. Post-images configured (`post_images: auto_configure`), since change streams alone do not carry the pre-update document.                                                                                      |
-   | **MySQL**      | `log_bin` on, `gtid_mode=ON`, `enforce_gtid_consistency=ON`, `binlog_format=ROW`, `binlog_row_image=FULL`, a unique `server-id`; a user with `REPLICATION SLAVE` and `SELECT`. On managed MySQL these usually live in a parameter group and need a restart.                                                           |
-   | **SQL Server** | CDC enabled at database level and per replicated table; a CDC-enabled `_powersync_checkpoints` table; SQL Server Agent **running**, or CDC captures nothing while appearing enabled; the user needs `cdc_reader`, `VIEW DATABASE PERFORMANCE STATE` in the database, and `VIEW SERVER PERFORMANCE STATE` in `master`. |
+For the API to be usable, you need to perform the following config:
 
-2. **A PowerSync instance** pointed at that same database, with sync rules for your schema. Its
-   custom-auth (JWKS) settings need to reach this backend's `GET /api/auth/keys` — for local dev
-   that means tunnelling `localhost:6060` (e.g. ngrok) so PowerSync Cloud can reach it.
+1. Replace the throwaway signing keys:
+   ```bash
+   cd backend && pnpm generate-keys      # prints both values for .env
+   ```
 
-3. Set `POWERSYNC_URL` and `JWT_ISSUER` in `.env` to whatever audience/issuer your PowerSync
-   instance's auth settings expect.
+> The signing keys in `.env` are a **public throwaway pair**, committed so the backend signs
+> consistently across restarts. Replace them before this is anything but a demo.
 
-4. **Your client needs to reach this backend.** `localhost:6060` only works if the client runs on
+2. Set `DATABASE_TYPE`, `DATABASE_URI`, `POWERSYNC_URL`, and `JWT_ISSUER` in `.env` to point at
+   that database and match your PowerSync instance's auth settings (audience/issuer).
+
+3. **Your client needs to reach this backend.** `localhost:6060` only works if the client runs on
    this same machine. Otherwise either bind the backend to `0.0.0.0` and put a client on the same
    network, or tunnel it (e.g. `ngrok http 6060`) and point the client at the public URL instead.
 
-5. **Your client needs code to actually call this backend.** Nothing calls `/api/data` for you —
+4. **Your client needs code to actually call this backend.** Nothing calls `/api/data` for you —
    copy the pieces in `example-client/` into your app to perform writes. See
-   `example-client/README.md` (fuller install docs there coming later).
+   `example-client/README.md` for detailed instructions.
 
-If your database runs on this machine rather than in Docker, the backend reaches it at
-`host.docker.internal`, not `localhost` — inside a container, `localhost` is the container.
+> If your database runs on this machine rather than in Docker, the backend reaches it at
+> `host.docker.internal`, not `localhost` — inside a container, `localhost` is the container.
 
 ## Layout
 
@@ -75,27 +82,19 @@ COMPOSE_FILE=docker-compose.yaml:docker-compose.dev.yaml
 docker compose up
 ```
 
-Your working tree is mounted into the container and the process restarts on save — no image
-rebuild. Or skip Docker entirely and run `pnpm dev` on the host (see `backend/README.md`).
+Your working tree is mounted into the container and the process restarts on save. 
 
-Seams worth knowing:
+Or skip Docker entirely and run `pnpm dev` on the host (see `backend/README.md`).
 
-- `backend/src/auth/verifier.ts` — swap the demo's tokens for your own identity provider. See
+## Key integration points
+
+- `backend/src/auth/verifier.ts` swap the demo's tokens for your own identity provider. See
   [docs/auth-verifiers.md](./docs/auth-verifiers.md).
-- `backend/src/auth/authorizer.ts` — **there is no authorization by default**, only
+- `backend/src/auth/authorizer.ts` **there is no authorization by default**, only
   authentication. Every authenticated write is currently allowed, no matter what it touches. See
   [docs/authorization.md](./docs/authorization.md).
-- `backend/src/mapping/` — how a `CrudEntry` becomes a database write. The default is a naive 1:1
+- `backend/src/mapping/` how a `CrudEntry` becomes a database write. The default is a naive 1:1
   field pass-through. See [docs/schema-mapping.md](./docs/schema-mapping.md).
-
-Replacing the throwaway signing keys is one command:
-
-```bash
-cd backend && pnpm generate-keys      # prints both values for .env
-```
-
-> The signing keys in `.env` are a **public throwaway pair**, committed so the backend signs
-> consistently across restarts. Replace them before this is anything but a demo.
 
 ## Generating types from the contract
 

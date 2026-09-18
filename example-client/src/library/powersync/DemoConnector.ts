@@ -1,78 +1,37 @@
 import { v4 as uuid } from 'uuid';
 
 import type { AbstractPowerSyncDatabase, CrudTransaction, PowerSyncBackendConnector } from '@powersync/web';
-import { WriteAPIClient, type OnFatalError, type TransactionResult } from './WriteAPIClient';
-import { AuthenticationError, createOpenAPIClient, DEFAULT_REQUEST_TIMEOUT_MS, type OpenAPIClient } from './OpenAPITransport';
-
-/**
- * Bounds on a transaction batch, plus what the backend should do with a fatally failed transaction.
- */
-export type BatchingConfig = {
-  maxTransactions: number;
-  maxOperations: number;
-  onFatalError: OnFatalError;
-};
-
-export type DemoConfig = {
-  backendUrl: string;
-  powersyncUrl: string;
-  /** `null` uploads one transaction per attempt, which is the default. */
-  batching: BatchingConfig | null;
-  /** Abort a write API request that takes longer than this. */
-  requestTimeoutMs: number;
-};
-
-const USER_ID_STORAGE_KEY = 'ps_user_id';
-
-const DEFAULT_MAX_OPERATIONS = 1000;
-
-const DEFAULT_BATCHING_CONFIG: BatchingConfig = {
-  maxTransactions: 1,
-  maxOperations: DEFAULT_MAX_OPERATIONS,
-  onFatalError: 'skip'
-};
-
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-
-/**
- * The completion boundary: the index of the last transaction the client may complete through, or
- * `-1` if it may complete nothing.
- *
- * `success` is completable, and so is `fatal_error`: the transaction is being discarded, either
- * because the backend skipped it or because this connector discards unrecoverable writes rather than
- * blocking the queue forever. `retryable_error` and `not_attempted` are **not** completable, those
- * transactions were not applied and must stay in the queue for the next attempt.
- */
-export const completionBoundary = (results: Pick<TransactionResult, 'status'>[]): number => {
-  let boundary = -1;
-
-  for (const [index, result] of results.entries()) {
-    if (result.status !== 'success' && result.status !== 'fatal_error') {
-      break;
-    }
-    boundary = index;
-  }
-
-  return boundary;
-};
-
-const readBatchingConfig = (): BatchingConfig | null => {
-  const maxTransactions = Number(import.meta.env.VITE_BATCH_MAX_TRANSACTIONS ?? '');
-
-  if (!Number.isInteger(maxTransactions) || maxTransactions < 1) {
-    return null;
-  }
-
-  const maxOperations = Number(import.meta.env.VITE_BATCH_MAX_OPERATIONS ?? '');
-
-  return {
-    maxTransactions,
-    maxOperations: Number.isInteger(maxOperations) && maxOperations > 0 ? maxOperations : DEFAULT_MAX_OPERATIONS,
-    onFatalError: import.meta.env.VITE_BATCH_ON_FATAL_ERROR === 'skip' ? 'skip' : 'stop'
-  };
-};
+import { WriteAPIClient, type TransactionResult } from './WriteAPIClient';
+import { AuthenticationError, createOpenAPIClient, type OpenAPIClient } from './OpenAPITransport';
+import { DEFAULT_BATCHING_CONFIG, readDemoConfig, USER_ID_STORAGE_KEY, type BatchingConfig, type DemoConfig } from './DemoConnectorConfig';
+import { completionBoundary, sleep } from './TransactionBatching';
 
 export class DemoConnector implements PowerSyncBackendConnector {
+  // ===========================================================================================
+  // START HERE: uploadData and fetchCredentials are the two methods you need to implement.
+  //
+  // See the client-side integration guide:
+  // https://docs.powersync.com/configuration/app-backend/client-side-integration#backend-connector
+  //
+  // Everything below this block is a reference implementation, already working — you don't need
+  // to touch it, but you can override any of it if you want different behaviour.
+
+  // Called by PowerSync whenever it has local changes to send to your backend.
+  // The implementation below already works with this repo's Write API backend.
+  // No changes are needed to get started.
+  async uploadData(database: AbstractPowerSyncDatabase): Promise<void> {
+    const batching = this.getBatchingConfig();
+    return this.uploadTransactionBatch(database, batching);
+  }
+
+  // Returns the token PowerSync uses to authenticate.
+  // You've likely already implemented this while connecting your front-end to PowerSync.
+  // For development, you can return a development token here.
+  // See: https://docs.powersync.com/configuration/auth/development-tokens
+  async fetchCredentials() {}
+
+  // ===========================================================================================
+
   readonly config: DemoConfig;
   readonly userId: string;
   readonly apiClient: OpenAPIClient;
@@ -92,32 +51,12 @@ export class DemoConnector implements PowerSyncBackendConnector {
     this._writeClient = null;
     this._authToken = null;
 
-    const requestTimeoutMs = Number(import.meta.env.VITE_REQUEST_TIMEOUT_MS ?? '');
-
-    this.config = {
-      backendUrl: import.meta.env.VITE_BACKEND_URL,
-      powersyncUrl: import.meta.env.VITE_POWERSYNC_URL,
-      batching: readBatchingConfig(),
-      requestTimeoutMs: Number.isInteger(requestTimeoutMs) && requestTimeoutMs > 0 ? requestTimeoutMs : DEFAULT_REQUEST_TIMEOUT_MS
-    };
+    this.config = readDemoConfig();
 
     this.apiClient = createOpenAPIClient(this.config.backendUrl, {
       timeoutMs: this.config.requestTimeoutMs,
       getAuthToken: () => this.getAuthToken()
     });
-  }
-
-  async fetchCredentials() {
-    // PowerSync calls this on connect and again whenever it decides the sync token needs
-    // refreshing, so route through the shared cache: every call here gets a fresh token, and the
-    // write API (via getAuthToken) piggybacks on it instead of fetching its own.
-    const token = await this.fetchAuthToken();
-    this._authToken = token;
-
-    return {
-      endpoint: this.config.powersyncUrl,
-      token
-    };
   }
 
   private async fetchAuthToken(): Promise<string> {
@@ -134,7 +73,7 @@ export class DemoConnector implements PowerSyncBackendConnector {
 
   /**
    * The bearer token for write API requests. Reuses whatever fetchCredentials last fetched for the
-   * sync connection; fetches its own if nothing has been cached yet (e.g. before the first
+   * sync connection; fetches its own if nothing has been cached yet (e.g. before the firs
    * connect), or after {@link onTransportError} invalidated a rejected token.
    */
   private async getAuthToken(): Promise<string> {
@@ -163,15 +102,9 @@ export class DemoConnector implements PowerSyncBackendConnector {
     return this._writeClient;
   }
 
-  async uploadData(database: AbstractPowerSyncDatabase): Promise<void> {
-    const batching = this.getBatchingConfig();
-    return this.uploadTransactionBatch(database, batching);
-  }
-
-
   /**
    * Called when the backend permanently rejects a transaction (a bug in the application, not a
-   * transient failure). The transaction is discarded and the queue moves on regardless of what
+   * transient failure). The transaction is discarded and the queue moves on regardless of wha
    * this method does.
    *
    * Default behaviour is to log and drop the data. Dead-lettering should happen server-side, where
@@ -196,7 +129,7 @@ export class DemoConnector implements PowerSyncBackendConnector {
 
   /**
    * Called for a transport-level failure (network error, timeout, non-2xx response) — the backend
-   * was never reached or never returned a classified result at all. Default behaviour routes it
+   * was never reached or never returned a classified result at all. Default behaviour routes i
    * through {@link onRetryableError} so both failure kinds share one override point and the
    * transaction stays in the queue for retry. Override to distinguish transport failures from
    * in-band retryable errors.
