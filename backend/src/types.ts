@@ -1,5 +1,6 @@
 import type { components, operations } from './generated/api.js';
 import type { EntryMapper } from './mapping/types.js';
+import type { AuthContext } from './auth/types.js';
 
 export type CrudEntry = components['schemas']['CrudEntry'];
 export type OpType = CrudEntry['op'];
@@ -26,7 +27,7 @@ export type OpQuery<Op extends keyof operations> = operations[Op] extends { para
   : never;
 
 export interface Persister {
-  updateBatch: (batch: CrudEntry[]) => Promise<void>;
+  updateBatch: (batch: CrudEntry[], auth: AuthContext) => Promise<void>;
 }
 
 export type PersisterFactory = (uri: string, mapper?: EntryMapper) => Persister | Promise<Persister>;

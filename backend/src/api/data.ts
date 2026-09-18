@@ -1,6 +1,8 @@
 import express, { type Request, type Response } from 'express';
 import { getPersister } from '../persistance/persister.js';
+import { authorizer } from '../auth/authorizer.js';
 import { FatalOperationError, RetryableError } from '../errors.js';
+import type { AuthContext } from '../auth/types.js';
 import type { CrudEntry, OpBody, OpResponse, TransactionResult } from '../types.js';
 
 const router = express.Router();
@@ -8,10 +10,15 @@ const router = express.Router();
 /**
  * Apply one transaction and classify the outcome.
  */
-const applyTransaction = async (crud: CrudEntry[]): Promise<TransactionResult> => {
+const applyTransaction = async (crud: CrudEntry[], auth: AuthContext): Promise<TransactionResult> => {
   try {
+    const allowed = await authorizer.authorize(crud, auth);
+    if (!allowed) {
+      throw new FatalOperationError('unauthorized', 'Not authorized to apply this transaction');
+    }
+
     const { updateBatch } = await getPersister();
-    await updateBatch(crud);
+    await updateBatch(crud, auth);
     return { status: 'success' };
   } catch (e) {
     if (e instanceof FatalOperationError) {
@@ -61,7 +68,7 @@ router.post(
     const results: TransactionResult[] = [];
 
     for (const transaction of transactions) {
-      const result = await applyTransaction(transaction.crud);
+      const result = await applyTransaction(transaction.crud, req.auth!);
       results.push(result);
 
       if (result.status === 'success') {

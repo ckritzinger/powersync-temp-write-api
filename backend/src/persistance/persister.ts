@@ -44,9 +44,7 @@ const createConfiguredPersister = async (): Promise<Persister> => {
     throw new ConfigurationError(
       `DATABASE_URI is not set, so there is no source database to write to.\n\n` +
         `Set it in .env to a database you already run:\n\n` +
-        `  DATABASE_URI=postgres://user:password@host:5432/database\n\n` +
-        `Or select a bundled example instead, which brings its own database:\n\n` +
-        `  COMPOSE_FILE=docker-compose.yaml:examples/postgres/compose.yaml`
+        `  DATABASE_URI=postgres://user:password@host:5432/database`
     );
   }
 

@@ -11,7 +11,7 @@
     "format": "prettier --write .",
     "check": "tsc -b",
     "test": "vitest run",
-    "generate-types": "openapi-typescript ./openapi.yaml -o src/generated/api.ts"
+    "generate-types": "openapi-typescript ./openapi.yaml -o src/generated/api.ts && openapi-typescript ./openapi.yaml -o ../example-client/src/generated/api.d.ts"
   },
   "dependencies": {
     "dotenv": "^16.3.1",

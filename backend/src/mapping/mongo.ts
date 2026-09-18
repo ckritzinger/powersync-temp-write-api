@@ -3,7 +3,14 @@ import type { EntryMapper } from './types.js';
 
 export const mongoMapper: EntryMapper = (entry) => {
   const tableSchema = schema[entry.table];
-  if (!tableSchema) return null;
+  if (!tableSchema) {
+    console.error(
+      `mongoMapper: no schema entry for table "${entry.table}" in mongo-schema.ts — dropping this ` +
+        `operation entirely, silently as far as the client's upload queue is concerned. Add a ` +
+        `TableSchema for "${entry.table}", or write your own EntryMapper. See docs/schema-mapping.md.`
+    );
+    return null;
+  }
 
   const data = entry.op_data ?? {};
   const id = (entry.id ?? data.id) as string;

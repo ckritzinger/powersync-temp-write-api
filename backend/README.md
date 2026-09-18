@@ -40,20 +40,20 @@ four persisters behind `POST /api/data`. [jose](https://github.com/panva/jose) s
 
 ## Running it
 
-The backend runs in Docker Compose, alongside the PowerSync service and bucket storage. It is not
-meant to be started on its own — see the [root README](../README.md) for the two run modes.
-
 From the repo root:
 
 ```bash
 docker compose up --build
 ```
 
+See the [root README](../README.md) for what else this needs: a database with replication turned
+on, and a PowerSync instance pointed at it and at this backend.
+
 To edit backend code without rebuilding the image, append the development overlay to `COMPOSE_FILE`
 in the root `.env`:
 
 ```bash
-COMPOSE_FILE=docker-compose.yaml:examples/postgres/compose.yaml:docker-compose.dev.yaml
+COMPOSE_FILE=docker-compose.yaml:docker-compose.dev.yaml
 ```
 
 Your working tree is mounted in and the process restarts on save.
@@ -63,7 +63,7 @@ Your working tree is mounted in and the process restarts on save.
 
 ## Configuration
 
-Set in the root `.env` and in the Compose overlays, not here:
+Set in the root `.env`, not here:
 
 | Variable | Meaning |
 | --- | --- |
@@ -89,7 +89,32 @@ pnpm generate-keys
 
 `src/auth/verifier.ts` is the seam. The demo verifies the same token this backend mints; replace
 that export to accept tokens from Supabase, Clerk, Auth0 or anything else. Worked examples are in
-[auth-verifiers.md](../auth-verifiers.md).
+[auth-verifiers.md](../docs/auth-verifiers.md).
+
+## Authorization
+
+Authentication (above) proves *who* is writing. It says nothing about *what* they're allowed to
+write, and neither does the rest of this backend by default: `src/auth/authorizer.ts` exports an
+`authorizer` that allows every authenticated write and logs an error every time it's called,
+saying so. Replace it — see [docs/authorization.md](../docs/authorization.md).
+
+## Schema mapping
+
+`src/mapping/` turns a `CrudEntry` into what actually gets written. The default (`defaultMapper`)
+is a naive 1:1 pass-through — same table name, same field names, no type coercion — logged loudly
+on every call so it isn't mistaken for something more capable. See
+[docs/schema-mapping.md](../docs/schema-mapping.md) for how to replace it.
+
+## Generating types from the contract
+
+```bash
+pnpm generate-types
+```
+
+Regenerates `src/generated/api.ts` here **and** `../example-client/src/generated/api.d.ts` — one
+command, since both are generated from the same `openapi.yaml`. Run it whenever the OpenAPI spec
+changes; nothing does this automatically, and stale stubs compile fine while silently drifting
+from what the backend actually accepts.
 
 ## Tests
 

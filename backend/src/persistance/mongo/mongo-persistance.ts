@@ -3,6 +3,7 @@ import type { Persister, CrudEntry } from '../../types.js';
 import { classifyMongoError } from './mongo-errors.js';
 import type { EntryMapper } from '../../mapping/types.js';
 import { mongoMapper } from '../../mapping/mongo.js';
+import type { AuthContext } from '../../auth/types.js';
 
 export const createMongoPersister = async (uri: string, mapper: EntryMapper = mongoMapper): Promise<Persister> => {
   console.debug('Using MongoDB Persister');
@@ -12,7 +13,9 @@ export const createMongoPersister = async (uri: string, mapper: EntryMapper = mo
   await client.connect();
 
   const persister: Persister = {
-    updateBatch: async (batch: CrudEntry[]) => {
+    // No native row-level security equivalent for Mongo — auth is unused here. Real per-row
+    // authorization means writing it yourself, either in authorize() or in this transaction.
+    updateBatch: async (batch: CrudEntry[], _auth: AuthContext) => {
       // Transactions require a replica set or sharded cluster.
       const session = client.startSession();
       try {

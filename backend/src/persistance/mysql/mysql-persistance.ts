@@ -4,6 +4,7 @@ import { classifyMySQLError } from './mysql-errors.js';
 import type { RowDataPacket } from 'mysql2/promise';
 import type { EntryMapper } from '../../mapping/types.js';
 import { defaultMapper } from '../../mapping/default.js';
+import type { AuthContext } from '../../auth/types.js';
 
 function escapeIdentifier(identifier: string): string {
   return `\`${identifier.replace(/`/g, '``').replace(/\./g, '`.`')}\``;
@@ -15,7 +16,9 @@ export const createMySQLPersister = (uri: string, mapper: EntryMapper = defaultM
   const pool = mysql.createPool(uri);
 
   const persister: Persister = {
-    updateBatch: async (batch: CrudEntry[]) => {
+    // No native row-level security equivalent for MySQL — auth is unused here. Real per-row
+    // authorization means writing it yourself, either in authorize() or in this transaction.
+    updateBatch: async (batch: CrudEntry[], _auth: AuthContext) => {
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();

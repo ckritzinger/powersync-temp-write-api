@@ -4,6 +4,7 @@ import type { Persister, CrudEntry } from '../../types.js';
 import { classifyPostgresError } from './postgres-errors.js';
 import type { EntryMapper } from '../../mapping/types.js';
 import { defaultMapper } from '../../mapping/default.js';
+import type { AuthContext } from '../../auth/types.js';
 
 const { Pool } = PG;
 
@@ -29,10 +30,17 @@ export const createPostgresPersister = (uri: string, mapper: EntryMapper = defau
   });
 
   const persister: Persister = {
-    updateBatch: async (batch: CrudEntry[]) => {
+    updateBatch: async (batch: CrudEntry[], auth: AuthContext) => {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
+
+        // The only one of the four databases with native row-level security. This makes the
+        // authenticated caller's id visible to Postgres itself as a session variable, `true`
+        // scoping it to this transaction — so RLS policies can reference it with
+        // current_setting('app.user_id', true). No policies are defined here; write your own on
+        // the tables that need them. See docs/authorization.md.
+        await client.query('SELECT set_config($1, $2, true)', ['app.user_id', auth.sub]);
 
         for (const op of batch) {
           const mapped = mapper(op);

@@ -1,12 +1,8 @@
 # Development overlay: edit backend code and see it running in seconds, with no image rebuild.
 #
-# Append it to whichever mode you are in:
+#   COMPOSE_FILE=docker-compose.yaml:docker-compose.dev.yaml
 #
-#   COMPOSE_FILE=docker-compose.yaml:examples/postgres/compose.yaml:docker-compose.dev.yaml
-#   COMPOSE_FILE=docker-compose.yaml:docker-compose.dev.yaml                  # Adopter Mode
-#
-# It overrides the backend only. An adopter running Adopter Mode has no demo client for an
-# overlay to reference, so the client's own dev loop is `cd frontend && pnpm dev` on the host.
+# Or skip Docker for the backend entirely and run `pnpm dev` on the host (see backend/README.md).
 
 services:
   backend:
