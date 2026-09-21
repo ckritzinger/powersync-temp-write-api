@@ -1,10 +1,16 @@
 # PowerSync Write API
 
-A self-hostable backend for the PowerSync write path: a client uploads its queued local changes to
+## TODO
+
+ - [ ] server-side dead-lettering is not implemented.
+
+## Intro
+
+This is a self-hostable backend for the PowerSync write path: a client uploads its queued local changes to
 an HTTP API, which persists them to your source database. PowerSync replicates that database back
 to clients.
 
-Clone it, point it at your own database and PowerSync instance, and change the code.
+**Clone it, point it at your own database and PowerSync instance, and change the code.**
 
 This repo assumes you already have:
 
@@ -42,7 +48,7 @@ For the API to be usable, you need to perform the following config:
 > The signing keys in `.env` are a **public throwaway pair**. These are committed so the backend signs
 > consistently across restarts. __Replace them before this is anything but a demo.__ If no keypair is
 > configured at all, the backend generates a temporary one at boot instead. This is fine for a one-off
-> run, but every restart will create a new key. One this happens, PowerSync will rejects tokens it
+> run, but every restart will create a new key. Once this happens, PowerSync will reject tokens it
 > accepted moments earlier with:
 > `PSYNC_S2101 — Could not find an appropriate key in the keystore`.
 
@@ -89,9 +95,9 @@ write-api/
 
 ## API overview
 
-There are three endpoints, see `backend/openapi.yaml`.
-
-The main endpoint is used to write data back from the Powersync client:
+There are three endpoints. Only `/api/data` is in `backend/openapi.yaml`.
+This is the main endpoint is used to write data back from the Powersync client
+The two auth endpoints are ancillary/for development purposes and are not included in the Write API spec.
 
 - **POST `/api/data`** — the only write endpoint. Accepts a transaction batch (an ordered run of
   whole transactions from the client's upload queue) and applies each in its own database
@@ -100,15 +106,17 @@ The main endpoint is used to write data back from the Powersync client:
   by one poison operation can still drain. Either way, the response reports one result per
   transaction sent, so the client always knows what was applied.
 
-Every failure is either **retryable** (deadlock, lock timeout, connection loss — the client
-retries) or **fatal** (bad data that can never be stored — the client discards it). Each supported
-database maps its driver's own errors onto these two in `backend/src/persistance/*/*-errors.ts`.
+Every failure is either **retryable** (deadlock, lock timeout, connection loss)
+or **fatal** (bad data that can never be stored, or an error the backend doesn't
+recognize).
+Each supported database maps its driver's own errors onto these two in `backend/src/persistance/*/*-errors.ts`.
+Unrecognized errors default to fatal rather than being retried forever.
 
 [node-postgres](https://github.com/brianc/node-postgres),
 [mongodb](https://www.npmjs.com/package/mongodb), [mysql2](https://www.npmjs.com/package/mysql2),
 and [node-mssql](https://www.npmjs.com/package/mssql) are used to implement the four persisters.
 
-The other two endpoints are authentication-related. These endpoints are mainly included for ease of initial dev setup.
+Ancillary auth endpoints. These endpoints are mainly included for ease of initial dev setup.
 
 - **GET `/api/auth/token`** — returns a JWT for PowerSync auth. Optional `user_id` query param
   sets the token's subject.

@@ -33,8 +33,13 @@ const applyTransaction = async (crud: CrudEntry[], auth: AuthContext): Promise<T
     } else if (e instanceof RetryableError) {
       return { status: 'retryable_error', message: e.message };
     } else {
+      // Anything else (a bug, not a classified DB/auth outcome) is fatal rather than retried forever.
       const msg = e instanceof Error ? e.message : String(e);
-      return { status: 'retryable_error', message: msg };
+      return {
+        status: 'fatal_error',
+        message: msg,
+        failed_operation: { error_code: 'UNCLASSIFIED_ERROR', message: msg }
+      };
     }
   }
 };

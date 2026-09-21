@@ -26,7 +26,7 @@ export const DEFAULT_MAX_OPERATIONS = 1000;
 export const DEFAULT_BATCHING_CONFIG: BatchingConfig = {
   maxTransactions: 1,
   maxOperations: DEFAULT_MAX_OPERATIONS,
-  onFatalError: 'skip'
+  onFatalError: 'stop'
 };
 
 export const readBatchingConfig = (): BatchingConfig | null => {

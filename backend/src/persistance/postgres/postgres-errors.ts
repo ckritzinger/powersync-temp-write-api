@@ -25,5 +25,20 @@ export const classifyPostgresError = (error: unknown): Error => {
     return new FatalOperationError('SCHEMA_MISMATCH', message);
   }
 
-  return new RetryableError(message);
+  // Class 08 (connection), 40 (transaction rollback: deadlock/serialization failure), 53
+  // (insufficient resources), 57/58 (admin shutdown/system error), or no SQLSTATE at all (raw
+  // driver/network error, e.g. connection reset): known-transient buckets, kept retryable.
+  // Everything else unrecognized is treated as fatal below rather than retried forever.
+  if (
+    code === '' ||
+    code.startsWith('08') ||
+    code.startsWith('40') ||
+    code.startsWith('53') ||
+    code.startsWith('57') ||
+    code.startsWith('58')
+  ) {
+    return new RetryableError(message);
+  }
+
+  return new FatalOperationError('UNCLASSIFIED_ERROR', message);
 };

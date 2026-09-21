@@ -121,7 +121,7 @@ export class DemoConnector implements PowerSyncBackendConnector {
 
   /**
    * Called when the backend permanently rejects a transaction (a bug in the application, not a
-   * transient failure). The transaction is discarded and the queue moves on regardless of wha
+   * transient failure). The transaction is discarded and the queue moves on regardless of what
    * this method does.
    *
    * Default behaviour is to log and drop the data. Dead-lettering should happen server-side, where
@@ -146,7 +146,7 @@ export class DemoConnector implements PowerSyncBackendConnector {
 
   /**
    * Called for a transport-level failure (network error, timeout, non-2xx response) — the backend
-   * was never reached or never returned a classified result at all. Default behaviour routes i
+   * was never reached or never returned a classified result at all. Default behaviour routes it
    * through {@link onRetryableError} so both failure kinds share one override point and the
    * transaction stays in the queue for retry. Override to distinguish transport failures from
    * in-band retryable errors.

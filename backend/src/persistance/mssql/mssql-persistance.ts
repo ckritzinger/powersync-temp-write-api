@@ -93,6 +93,8 @@ export const createMSSQLPersister = async (uri: string, mapper: EntryMapper = de
               updateClauses.push(`${escapeIdentifier(key)} = @${key}`);
             }
 
+            if (updateClauses.length === 0) continue;
+
             const statement = `
               UPDATE ${table}
               SET ${updateClauses.join(', ')}

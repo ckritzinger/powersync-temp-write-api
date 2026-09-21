@@ -207,8 +207,9 @@ components:
             UNIQUE_VIOLATION, FOREIGN_KEY_VIOLATION, CHECK_VIOLATION,
             CONSTRAINT_VIOLATION (a constraint the backend could not identify
             more precisely), INVALID_DATA (a value that cannot be stored in the
-            column, e.g. malformed or out of range), SCHEMA_MISMATCH and
-            DOCUMENT_VALIDATION_FAILURE.
+            column, e.g. malformed or out of range), SCHEMA_MISMATCH,
+            DOCUMENT_VALIDATION_FAILURE, and UNCLASSIFIED_ERROR (an error the
+            backend didn't recognize).
         message:
           type: string
           description: Human-readable error detail.

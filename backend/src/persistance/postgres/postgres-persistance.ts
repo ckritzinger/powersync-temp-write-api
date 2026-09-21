@@ -86,6 +86,8 @@ export const createPostgresPersister = (uri: string, mapper: EntryMapper = defau
               updateClauses.push(`${escapeIdentifier(key)} = data_row.${escapeIdentifier(key)}`);
             }
 
+            if (updateClauses.length === 0) continue;
+
             const statement = `
                 WITH data_row AS (
                     SELECT (json_populate_record(null::${table}, $1::json)).*

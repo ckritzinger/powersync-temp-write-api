@@ -60,6 +60,8 @@ export const createMySQLPersister = (uri: string, mapper: EntryMapper = defaultM
               updateClauses.push(`${escapeIdentifier(key)} = ?`);
             }
 
+            if (updateClauses.length === 0) continue;
+
             const statement = `
               UPDATE ${table}
               SET ${updateClauses.join(', ')}

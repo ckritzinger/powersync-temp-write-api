@@ -65,7 +65,7 @@ async function ensureKeys(): Promise<void> {
 router.get(
   '/token',
   async (req: Request<{}, TokenResponse, never, { user_id?: string }>, res: Response<TokenResponse>) => {
-    const user_id = req.query.user_id ?? 'UserID ';
+    const user_id = req.query.user_id ?? 'UserID';
 
     const token = await generateToken(user_id, {});
     res.send({
