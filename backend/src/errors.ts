@@ -15,10 +15,22 @@ export class RetryableError extends Error {
   }
 }
 
+export type ErrorCode =
+  | 'NOT_NULL_VIOLATION'
+  | 'UNIQUE_VIOLATION'
+  | 'FOREIGN_KEY_VIOLATION'
+  | 'CHECK_VIOLATION'
+  | 'CONSTRAINT_VIOLATION'
+  | 'INVALID_DATA'
+  | 'SCHEMA_MISMATCH'
+  | 'DOCUMENT_VALIDATION_FAILURE'
+  | 'UNAUTHORIZED'
+  | 'UNCLASSIFIED_ERROR';
+
 /** Non-recoverable failure (constraint violation, schema mismatch). Client should NOT retry. */
 export class FatalOperationError extends Error {
   constructor(
-    public readonly errorCode: string,
+    public readonly errorCode: ErrorCode,
     message: string
   ) {
     super(message);

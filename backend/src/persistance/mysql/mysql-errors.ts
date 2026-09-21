@@ -1,6 +1,6 @@
-import { FatalOperationError, RetryableError, messageOf } from '../../errors.js';
+import { ErrorCode, FatalOperationError, RetryableError, messageOf } from '../../errors.js';
 
-const MYSQL_ERRNOS: Record<number, string> = {
+const MYSQL_ERRNOS: Record<number, ErrorCode> = {
   1048: 'NOT_NULL_VIOLATION',
   1062: 'UNIQUE_VIOLATION',
   1452: 'FOREIGN_KEY_VIOLATION',

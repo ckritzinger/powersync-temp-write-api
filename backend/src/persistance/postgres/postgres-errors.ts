@@ -1,6 +1,6 @@
-import { FatalOperationError, RetryableError, messageOf } from '../../errors.js';
+import { ErrorCode, FatalOperationError, RetryableError, messageOf } from '../../errors.js';
 
-const POSTGRES_CODES: Record<string, string> = {
+const POSTGRES_CODES: Record<string, ErrorCode> = {
   '23502': 'NOT_NULL_VIOLATION',
   '23503': 'FOREIGN_KEY_VIOLATION',
   '23505': 'UNIQUE_VIOLATION',

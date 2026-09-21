@@ -1,6 +1,6 @@
-import { FatalOperationError, RetryableError, messageOf } from '../../errors.js';
+import { ErrorCode, FatalOperationError, RetryableError, messageOf } from '../../errors.js';
 
-const MSSQL_NUMBERS: Record<number, string> = {
+const MSSQL_NUMBERS: Record<number, ErrorCode> = {
   515: 'NOT_NULL_VIOLATION',
   547: 'CONSTRAINT_VIOLATION',
   2601: 'UNIQUE_VIOLATION',

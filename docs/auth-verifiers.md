@@ -118,7 +118,7 @@ this.apiClient = createOpenAPIClient(this.config.backendUrl, {
 });
 ```
 
-Remove the demo's `_writeToken` caching in `DemoConnector.ts` — `supabase-js` owns the
+Remove the demo's `_authToken` caching in `DemoConnector.ts` — `supabase-js` owns the
 session lifecycle. A `401` still throws in `postTransactionBatch`, so the PowerSync upload
 retries; by then `supabase-js` has typically refreshed the token.
 
@@ -214,7 +214,7 @@ this.apiClient = createOpenAPIClient(this.config.backendUrl, {
 });
 ```
 
-As with Supabase, remove the demo's `_writeToken` caching in `DemoConnector.ts` —
+As with Supabase, remove the demo's `_authToken` caching in `DemoConnector.ts` —
 `getToken()` already returns a fresh (or freshly minted) token each call.
 
 ### Step 4: Decide how sync tokens work

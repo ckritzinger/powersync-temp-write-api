@@ -14,7 +14,7 @@ const applyTransaction = async (crud: CrudEntry[], auth: AuthContext): Promise<T
   try {
     const allowed = await authorizer.authorize(crud, auth);
     if (!allowed) {
-      throw new FatalOperationError('unauthorized', 'Not authorized to apply this transaction');
+      throw new FatalOperationError('UNAUTHORIZED', 'Not authorized to apply this transaction');
     }
 
     const { updateBatch } = await getPersister();
