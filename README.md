@@ -3,6 +3,11 @@
 ## TODO
 
  - [ ] server-side dead-lettering is not implemented.
+ - [ ] Boot behavior inconsistent across DBs
+ - [ ] Zero test coverage on persistence/mapping layer
+ - [ ] Unmapped Mongo table writes fail silently
+ - [ ] No auth on /api/auth/token out of box. Quickstart path = open door.
+ - Fully typed client vs fetch-only single-file that can be copypastaed
 
 ## Intro
 
