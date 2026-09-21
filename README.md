@@ -9,8 +9,9 @@ Clone it, point it at your own database and PowerSync instance, and change the c
 This repo assumes you already have:
 
 1. A **hosted PowerSync instance** ([PowerSync Cloud](https://www.powersync.com/) or your own
-   self-managed deployment elsewhere) connected to a **database you already run**. It does not
-   bundle either of these.
+   self-managed deployment elsewhere) connected to a **database you already run**
+   (see [supported databases](https://docs.powersync.com/configuration/source-db/setup)).
+   It does not bundle either of these.
 
 2. A front-end already connected to PowerSync, displaying local data, and updating its local
    SQLite database with data mutations via `db.execute(...)`, as described in the
@@ -24,7 +25,7 @@ mutations to your source database. The `example-client` folder has a reference i
 ## Quickstart
 
 ```bash
-docker compose up --build
+docker compose up --build   # Crash-loops until configuration below is done, it needs DATABASE_TYPE and DATABASE_URI to boot
 ```
 
 Brings up the write API at http://localhost:6060
@@ -38,11 +39,25 @@ For the API to be usable, you need to perform the following config:
    cd backend && pnpm generate-keys      # prints both values for .env
    ```
 
-> The signing keys in `.env` are a **public throwaway pair**, committed so the backend signs
-> consistently across restarts. Replace them before this is anything but a demo.
+> The signing keys in `.env` are a **public throwaway pair**. These are committed so the backend signs
+> consistently across restarts. __Replace them before this is anything but a demo.__ If no keypair is
+> configured at all, the backend generates a temporary one at boot instead. This is fine for a one-off
+> run, but every restart will create a new key. One this happens, PowerSync will rejects tokens it
+> accepted moments earlier with:
+> `PSYNC_S2101 — Could not find an appropriate key in the keystore`.
 
-2. Set `DATABASE_TYPE`, `DATABASE_URI`, `POWERSYNC_URL`, and `JWT_ISSUER` in `.env` to point at
-   that database and match your PowerSync instance's auth settings (audience/issuer).
+2. Set the rest of `.env`:
+
+   | Variable | Meaning |
+   | --- | --- |
+   | `DATABASE_TYPE` | `postgres`, `mongodb`, `mysql`, or `mssql` |
+   | `DATABASE_URI` | Connection string for your source database |
+   | `PORT` | Defaults to 6060 |
+   | `POWERSYNC_URL`, `JWT_ISSUER` | Audience and issuer for the tokens this backend mints — must match your PowerSync instance's auth settings |
+   | `POWERSYNC_PRIVATE_KEY`, `POWERSYNC_PUBLIC_KEY` | The signing keys from step 1 |
+
+   The backend refuses to start, before serving any traffic, if `DATABASE_URI` is unset or
+   `DATABASE_TYPE` isn't one of the four above — with a message naming the fix, not a stack trace.
 
 3. **Your client needs code to actually call this backend.** Nothing calls `/api/data` for you —
    copy the pieces in `example-client/` into your app to perform writes. See
@@ -72,6 +87,36 @@ write-api/
     └── test.txt              # Manual QA checklist
 ```
 
+## API overview
+
+There are three endpoints, see `backend/openapi.yaml`.
+
+The main endpoint is used to write data back from the Powersync client:
+
+- **POST `/api/data`** — the only write endpoint. Accepts a transaction batch (an ordered run of
+  whole transactions from the client's upload queue) and applies each in its own database
+  transaction, stopping at the first failure. Optional `on_fatal_error` in the body: `stop`
+  (default) ends the batch there; `skip` drops that transaction and continues, so a queue blocked
+  by one poison operation can still drain. Either way, the response reports one result per
+  transaction sent, so the client always knows what was applied.
+
+Every failure is either **retryable** (deadlock, lock timeout, connection loss — the client
+retries) or **fatal** (bad data that can never be stored — the client discards it). Each supported
+database maps its driver's own errors onto these two in `backend/src/persistance/*/*-errors.ts`.
+
+[node-postgres](https://github.com/brianc/node-postgres),
+[mongodb](https://www.npmjs.com/package/mongodb), [mysql2](https://www.npmjs.com/package/mysql2),
+and [node-mssql](https://www.npmjs.com/package/mssql) are used to implement the four persisters.
+
+The other two endpoints are authentication-related. These endpoints are mainly included for ease of initial dev setup.
+
+- **GET `/api/auth/token`** — returns a JWT for PowerSync auth. Optional `user_id` query param
+  sets the token's subject.
+- **GET `/api/auth/keys`** — the JWKS endpoint your PowerSync instance's custom-auth settings
+  verify tokens against.
+
+[jose](https://github.com/panva/jose) signs and verifies the JWTs.
+
 ## Changing the backend
 
 Append the development overlay to run with hot-reload:
@@ -83,7 +128,14 @@ docker compose up
 
 Your working tree is mounted into the container and the process restarts on save.
 
-Or skip Docker entirely and run `pnpm dev` on the host (see `backend/README.md`).
+Or skip Docker entirely:
+
+```bash
+cd backend && pnpm install && pnpm dev
+```
+
+**WARNING:** Running this alongside the Dockerized backend fails with "address already in use", or quietly
+shadows the container port.
 
 ## Key integration points
 
@@ -94,6 +146,15 @@ Or skip Docker entirely and run `pnpm dev` on the host (see `backend/README.md`)
   [docs/authorization.md](./docs/authorization.md).
 - `backend/src/mapping/` how a `CrudEntry` becomes a database write. The default is a naive 1:1
   field pass-through. See [docs/schema-mapping.md](./docs/schema-mapping.md).
+
+## Tests
+
+```bash
+cd backend && pnpm test    # HTTP against the assembled app, plus the boot-failure contract
+cd backend && pnpm check   # types
+```
+
+Neither needs Docker.
 
 ## Generating types from the contract
 

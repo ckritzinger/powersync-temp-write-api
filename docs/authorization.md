@@ -41,10 +41,33 @@ DELETE; the existing row isn't available there.
 Two ways around that:
 
 - **Coarse checks in `authorize()`** — role/claim-based, or shape-based (e.g. reject writes to
-  tables a client should never touch directly). No row lookup needed.
+  tables a client should never touch directly). No row lookup needed:
+
+  ```ts
+  // export const authorizer: Authorizer = {
+  //   authorize(crud, auth) {
+  //     return crud.every((entry) => entry.op_data?.owner_id === auth.sub);
+  //   }
+  // };
+  ```
+
+  This only works if `op_data.owner_id` can be trusted — the client sent it, so it's exactly as
+  trustworthy as the client. Fine as a shape check; not a substitute for verifying ownership
+  against the row that actually exists (below).
+
 - **Row-level checks inside the persister** — the persister you're actually using already holds a
   live connection/transaction, so it can look up the existing row before writing, or express the
-  check directly in the write itself (e.g. `UPDATE ... WHERE id = $1 AND owner_id = $2`).
+  check directly in the write itself (e.g. `UPDATE ... WHERE id = $1 AND owner_id = $2`):
+
+  ```ts
+  // const { rows } = await client.query('SELECT owner_id FROM lists WHERE id = $1', [entry.id]);
+  // if (rows[0]?.owner_id !== auth.sub) {
+  //   throw new FatalOperationError('unauthorized', 'Not the owner of this row');
+  // }
+  ```
+
+  (Postgres shown; same idea in any persister with a live connection — a lookup before the write,
+  or the ownership check folded straight into the `WHERE` clause.)
 
 ## Postgres: row-level security
 

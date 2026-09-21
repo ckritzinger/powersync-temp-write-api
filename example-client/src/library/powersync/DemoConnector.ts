@@ -8,7 +8,9 @@ import { completionBoundary, sleep } from './TransactionBatching';
 
 export class DemoConnector implements PowerSyncBackendConnector {
   // ===========================================================================================
-  // START HERE: uploadData and fetchCredentials are the two methods you need to implement.
+  // START HERE: uploadData and fetchCredentials are what connect PowerSync to your backend.
+  // Both ship with a demo default that already works end-to-end for local development — see
+  // each method's own comment for exactly what that means and what to change for production.
   //
   // See the client-side integration guide:
   // https://docs.powersync.com/configuration/app-backend/client-side-integration#backend-connector
@@ -24,11 +26,26 @@ export class DemoConnector implements PowerSyncBackendConnector {
     return this.uploadTransactionBatch(database, batching);
   }
 
-  // Returns the token PowerSync uses to authenticate.
-  // You've likely already implemented this while connecting your front-end to PowerSync.
-  // For development, you can return a development token here.
-  // See: https://docs.powersync.com/configuration/auth/development-tokens
-  async fetchCredentials() {}
+  // Returns the credentials PowerSync uses for the SYNC (read) connection — a different thing
+  // from the write API auth above uploadData uses, even though the demo default below happens to
+  // fetch from the same place.
+  //
+  // THIS DEFAULT WILL NOT WORK OUT OF THE BOX. It mints a token from this backend's own demo
+  // /api/auth/token endpoint, which is a validly-shaped PowerSync JWT — but your PowerSync
+  // instance only trusts it once its custom-auth (JWKS) setting is pointed at this backend's
+  // GET /api/auth/keys. Until you do that, PowerSync rejects every token this returns and sync
+  // never connects, even though uploadData() above keeps working fine (it talks to this backend
+  // directly, not to PowerSync). See the root README's Configuration section for that step.
+  //
+  // You've likely already implemented a real version of this while connecting your front-end to
+  // PowerSync. Replace the body below with that once you have a real identity provider — see
+  // https://docs.powersync.com/configuration/auth/development-tokens in the meantime.
+  async fetchCredentials() {
+    return {
+      endpoint: this.config.powersyncUrl,
+      token: await this.getAuthToken()
+    };
+  }
 
   // ===========================================================================================
 
@@ -73,7 +90,7 @@ export class DemoConnector implements PowerSyncBackendConnector {
 
   /**
    * The bearer token for write API requests. Reuses whatever fetchCredentials last fetched for the
-   * sync connection; fetches its own if nothing has been cached yet (e.g. before the firs
+   * sync connection; fetches its own if nothing has been cached yet (e.g. before the first
    * connect), or after {@link onTransportError} invalidated a rejected token.
    */
   private async getAuthToken(): Promise<string> {
