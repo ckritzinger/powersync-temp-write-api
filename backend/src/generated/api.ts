@@ -105,7 +105,7 @@ export interface components {
             message?: string;
         };
         FailedOperation: {
-            /** @description Machine-readable classification. Open-ended and backend-specific; the values emitted today are NOT_NULL_VIOLATION, UNIQUE_VIOLATION, FOREIGN_KEY_VIOLATION, CHECK_VIOLATION, CONSTRAINT_VIOLATION (a constraint the backend could not identify more precisely), INVALID_DATA (a value that cannot be stored in the column, e.g. malformed or out of range), SCHEMA_MISMATCH and DOCUMENT_VALIDATION_FAILURE. */
+            /** @description Machine-readable classification. Open-ended and backend-specific; the values emitted today are NOT_NULL_VIOLATION, UNIQUE_VIOLATION, FOREIGN_KEY_VIOLATION, CHECK_VIOLATION, CONSTRAINT_VIOLATION (a constraint the backend could not identify more precisely), INVALID_DATA (a value that cannot be stored in the column, e.g. malformed or out of range), SCHEMA_MISMATCH, DOCUMENT_VALIDATION_FAILURE, and UNCLASSIFIED_ERROR (an error the backend didn't recognize). */
             error_code: string;
             /** @description Human-readable error detail. */
             message?: string;

@@ -15,10 +15,12 @@ src/
     ├── AppSchema.ts                 # Example PowerSync schema — replace with your own tables
     ├── WriteAPIClient.ts            # Turns a PowerSync CrudTransaction into a POST /api/data call
     ├── OpenAPITransport.ts          # Typed fetch wrapper around the OpenAPI contract
+    ├── DemoConnectorConfig.ts       # Config/env parsing for the connector (batching, timeouts, etc.)
+    ├── TransactionBatching.ts       # Groups queued CrudTransactions into upload batches
     └── DemoConnector.ts             # PowerSyncBackendConnector wiring the above into fetchCredentials/uploadData
 ```
 
-`DemoConnector.ts` is the one you actually adapt into your app, the other three are what it depends on.
+`DemoConnector.ts` is the one you actually adapt into your app, the other five are what it depends on.
 
 ## Node package dependencies
 

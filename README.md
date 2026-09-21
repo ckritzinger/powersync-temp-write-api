@@ -95,9 +95,9 @@ write-api/
 
 ## API overview
 
-There are three endpoints. Only `/api/data` is in `backend/openapi.yaml`.
-This is the main endpoint is used to write data back from the Powersync client
-The two auth endpoints are ancillary/for development purposes and are not included in the Write API spec.
+There are three endpoints. Only `/api/data` is in `backend/openapi.yaml` This is the main endpoint
+used to write data back from the PowerSync client. The two auth endpoints below are
+ancillary/for development purposes and are not included in the Write API spec.
 
 - **POST `/api/data`** — the only write endpoint. Accepts a transaction batch (an ordered run of
   whole transactions from the client's upload queue) and applies each in its own database
@@ -116,7 +116,7 @@ Unrecognized errors default to fatal rather than being retried forever.
 [mongodb](https://www.npmjs.com/package/mongodb), [mysql2](https://www.npmjs.com/package/mysql2),
 and [node-mssql](https://www.npmjs.com/package/mssql) are used to implement the four persisters.
 
-Ancillary auth endpoints. These endpoints are mainly included for ease of initial dev setup.
+### Ancillary auth endpoints
 
 - **GET `/api/auth/token`** — returns a JWT for PowerSync auth. Optional `user_id` query param
   sets the token's subject.
