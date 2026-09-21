@@ -81,6 +81,19 @@ For the API to be usable, you need to perform the following config:
 > If your database runs on this machine rather than in Docker, the backend reaches it at
 > `host.docker.internal`, not `localhost` — inside a container, `localhost` is the container.
 
+## Connect your front-end
+
+The backend alone does nothing, it must be called by a PowerSync client.
+
+To achieve that, you need to implement two methods on your `PowerSyncBackendConnector`:
+
+ - `fetchCredentials()` (get a token from `/api/auth/token` or your own IdP), and
+ -  `uploadData()` (turn queued local mutations into `POST /api/data` calls).
+
+`example-client/` has a reference implementation of both, ready to copy into your app. Either use the
+typed version or a single zero-dependency file. See [example-client/README.md](./example-client/README.md)
+for what's there and how to wire it in.
+
 ## Layout
 
 ```
