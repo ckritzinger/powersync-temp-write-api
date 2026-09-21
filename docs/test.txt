@@ -230,8 +230,9 @@ runnable project — this section checks that claim and the ones around it.
 
         find example-client/src -type f | sort
 
-    -> generated/api.d.ts, PowersyncConnector.ts, library/powersync/{AppSchema,
-       WriteAPIClient,OpenAPITransport,DemoConnectorConfig,TransactionBatching}.ts
+    -> generated/api.d.ts, PowersyncConnector.ts, PowersyncConnector.singlefile.ts,
+       library/powersync/{AppSchema,WriteAPIClient,OpenAPITransport,
+       DemoConnectorConfig,TransactionBatching}.ts
 
     (if PowersyncConnector.ts has been split further, the README's table and
     this list should still agree — that is the point of the check.)
@@ -244,6 +245,14 @@ runnable project — this section checks that claim and the ones around it.
           example-client/src/PowersyncConnector.ts | head -5
 
     -> uploadData and fetchCredentials both appear, ahead of the constructor.
+
+[ ] Confirm PowersyncConnector.singlefile.ts really has zero dependencies beyond
+    @powersync/* (its whole reason to exist):
+
+        grep -n "^import" example-client/src/PowersyncConnector.singlefile.ts
+
+    -> exactly one import line, from '@powersync/web'. Anything else — a second
+       import, or one from 'uuid'/'openapi-fetch'/a relative path — is a finding.
 
 [ ] Confirm example-client/.env.example's variables match the table in
     example-client/README.md — same names, same defaults:
