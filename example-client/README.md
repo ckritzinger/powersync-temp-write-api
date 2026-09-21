@@ -11,16 +11,16 @@ It is meant to be read and copied into your own app.
 ```
 src/
 ├── generated/api.d.ts               # Types generated from backend/openapi.yaml
+├── PowersyncConnector.ts            # PowerSyncBackendConnector wiring the below into fetchCredentials/uploadData
 └── library/powersync/
     ├── AppSchema.ts                 # Example PowerSync schema — replace with your own tables
     ├── WriteAPIClient.ts            # Turns a PowerSync CrudTransaction into a POST /api/data call
     ├── OpenAPITransport.ts          # Typed fetch wrapper around the OpenAPI contract
     ├── DemoConnectorConfig.ts       # Config/env parsing for the connector (batching, timeouts, etc.)
-    ├── TransactionBatching.ts       # Groups queued CrudTransactions into upload batches
-    └── DemoConnector.ts             # PowerSyncBackendConnector wiring the above into fetchCredentials/uploadData
+    └── TransactionBatching.ts       # Groups queued CrudTransactions into upload batches
 ```
 
-`DemoConnector.ts` is the one you actually adapt into your app, the other five are what it depends on.
+`PowersyncConnector.ts` is the one you actually adapt into your app, the other five are what it depends on.
 
 ## Node package dependencies
 

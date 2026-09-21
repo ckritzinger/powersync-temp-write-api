@@ -230,18 +230,18 @@ runnable project — this section checks that claim and the ones around it.
 
         find example-client/src -type f | sort
 
-    -> generated/api.d.ts, library/powersync/{AppSchema,WriteAPIClient,
-       OpenAPITransport,DemoConnector,DemoConnectorConfig,TransactionBatching}.ts
+    -> generated/api.d.ts, PowersyncConnector.ts, library/powersync/{AppSchema,
+       WriteAPIClient,OpenAPITransport,DemoConnectorConfig,TransactionBatching}.ts
 
-    (if DemoConnector.ts has been split further, the README's table and this
-    list should still agree — that is the point of the check.)
+    (if PowersyncConnector.ts has been split further, the README's table and
+    this list should still agree — that is the point of the check.)
 
-[ ] Confirm DemoConnector.ts actually implements PowerSyncBackendConnector's
+[ ] Confirm PowersyncConnector.ts actually implements PowerSyncBackendConnector's
     two required methods, and that they are the first thing in the class body
     (the file's own "START HERE" comment claims this):
 
-        grep -n "uploadData\|fetchCredentials\|class DemoConnector" \
-          example-client/src/library/powersync/DemoConnector.ts | head -5
+        grep -n "uploadData\|fetchCredentials\|class PowersyncConnector" \
+          example-client/src/PowersyncConnector.ts | head -5
 
     -> uploadData and fetchCredentials both appear, ahead of the constructor.
 

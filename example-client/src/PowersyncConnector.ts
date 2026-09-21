@@ -1,12 +1,12 @@
 import { v4 as uuid } from 'uuid';
 
 import type { AbstractPowerSyncDatabase, CrudTransaction, PowerSyncBackendConnector } from '@powersync/web';
-import { WriteAPIClient, type TransactionResult } from './WriteAPIClient';
-import { AuthenticationError, createOpenAPIClient, type OpenAPIClient } from './OpenAPITransport';
-import { DEFAULT_BATCHING_CONFIG, readDemoConfig, USER_ID_STORAGE_KEY, type BatchingConfig, type DemoConfig } from './DemoConnectorConfig';
-import { completionBoundary, sleep } from './TransactionBatching';
+import { WriteAPIClient, type TransactionResult } from './library/powersync/WriteAPIClient';
+import { AuthenticationError, createOpenAPIClient, type OpenAPIClient } from './library/powersync/OpenAPITransport';
+import { DEFAULT_BATCHING_CONFIG, readDemoConfig, USER_ID_STORAGE_KEY, type BatchingConfig, type DemoConfig } from './library/powersync/DemoConnectorConfig';
+import { completionBoundary, sleep } from './library/powersync/TransactionBatching';
 
-export class DemoConnector implements PowerSyncBackendConnector {
+export class PowersyncConnector implements PowerSyncBackendConnector {
   // ===========================================================================================
   // START HERE: uploadData and fetchCredentials are what connect PowerSync to your backend.
   // Both ship with a demo default that already works end-to-end for local development — see

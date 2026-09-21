@@ -24,7 +24,7 @@ result on `req.auth`. Nothing downstream knows or cares which provider verified 
 1. `backend/src/auth/verifier.ts` — replace the exported `verifier` (one file).
 2. A few env vars for your provider's keys/issuer.
 3. The client's `getToken()` — where the bearer token comes from
-   (`example-client/src/library/powersync/DemoConnector.ts`, fed into `createOpenAPIClient`).
+   (`example-client/src/PowersyncConnector.ts`, fed into `createOpenAPIClient`).
 
 **You keep:** the `TokenVerifier` interface, `requireAuth`, the OpenAPI contract
 (`bearerAuth` + `401`), the `OpenAPITransport` middleware shape, and the data route.
@@ -105,7 +105,7 @@ With Supabase the user actually signs in, and the write token is the **session a
 token**:
 
 ```ts
-// DemoConnector.ts (or your connector)
+// PowersyncConnector.ts (or your connector)
 this.apiClient = createOpenAPIClient(this.config.backendUrl, {
   getToken: async () => {
     const { data } = await supabase.auth.getSession();
@@ -118,7 +118,7 @@ this.apiClient = createOpenAPIClient(this.config.backendUrl, {
 });
 ```
 
-Remove the demo's `_authToken` caching in `DemoConnector.ts` — `supabase-js` owns the
+Remove the demo's `_authToken` caching in `PowersyncConnector.ts` — `supabase-js` owns the
 session lifecycle. A `401` still throws in `postTransactionBatch`, so the PowerSync upload
 retries; by then `supabase-js` has typically refreshed the token.
 
@@ -214,7 +214,7 @@ this.apiClient = createOpenAPIClient(this.config.backendUrl, {
 });
 ```
 
-As with Supabase, remove the demo's `_authToken` caching in `DemoConnector.ts` —
+As with Supabase, remove the demo's `_authToken` caching in `PowersyncConnector.ts` —
 `getToken()` already returns a fresh (or freshly minted) token each call.
 
 ### Step 4: Decide how sync tokens work
@@ -244,7 +244,7 @@ devtools), curl `POST /api/data` with it, expect `200` and
 ## Things to plan for when adopting
 
 - **Add a login UI.** The example client invents an anonymous UUID per browser
-  (`localStorage` `ps_user_id` in `DemoConnector.ts`). With a real provider your app needs
+  (`localStorage` `ps_user_id` in `PowersyncConnector.ts`). With a real provider your app needs
   actual sign-in before any write can succeed — an unauthenticated user's `getToken()`
   should throw, and uploads will (correctly) fail until sign-in.
 - **Identity changes shape.** `sub` goes from a device UUID to a real user id. Existing
