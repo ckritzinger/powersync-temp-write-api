@@ -2,15 +2,23 @@ import * as mongo from 'mongodb';
 import type { Persister, CrudEntry } from '../../types.js';
 import { classifyMongoError } from './mongo-errors.js';
 import type { EntryMapper } from '../../mapping/types.js';
-import { mongoMapper } from '../../mapping/mongo.js';
+import { createMongoMapper } from '../../mapping/mongo.js';
+import { discoverSchema, type TableSchema } from './mongo-schema.js';
+import { deadLetterQueue } from '../../dlq.js';
+import { FatalOperationError, RetryableError } from '../../errors.js';
 import type { AuthContext } from '../../auth/types.js';
 
-export const createMongoPersister = async (uri: string, mapper: EntryMapper = mongoMapper): Promise<Persister> => {
+export const createMongoPersister = async (uri: string, mapper?: EntryMapper): Promise<Persister> => {
   console.debug('Using MongoDB Persister');
 
   const client = new mongo.MongoClient(uri);
   const db = client.db();
   await client.connect();
+
+  // Only discover $jsonSchema validators when no mapper was supplied — an adopter passing their
+  // own mapper has already made this call themselves, and owns this decision entirely.
+  const schema: Record<string, TableSchema> | null = mapper ? null : await discoverSchema(db);
+  const resolvedMapper = mapper ?? createMongoMapper(schema!);
 
   const persister: Persister = {
     // No native row-level security equivalent for Mongo — auth is unused here. Real per-row
@@ -22,7 +30,25 @@ export const createMongoPersister = async (uri: string, mapper: EntryMapper = mo
         session.startTransaction();
 
         for (const op of batch) {
-          const mapped = mapper(op);
+          // Strict mode: a table with no discovered $jsonSchema validator has no trustworthy
+          // shape to write against — dead-letter the raw entry instead of guessing at it, and
+          // reject the whole transaction rather than silently skipping just this op. See
+          // docs/schema-mapping.md.
+          if (schema && !schema[op.table]) {
+            await deadLetterQueue.push({
+              table: op.table,
+              op: op.op,
+              id: op.id,
+              reason: `No MongoDB $jsonSchema validator found for collection "${op.table}" at boot.`,
+              entry: op
+            });
+            throw new FatalOperationError(
+              'SCHEMA_MISMATCH',
+              `No MongoDB schema validator for collection "${op.table}" — entry dead-lettered, transaction rejected.`
+            );
+          }
+
+          const mapped = resolvedMapper(op);
           if (mapped === null) continue;
 
           const collection = db.collection(mapped.table);
@@ -48,7 +74,10 @@ export const createMongoPersister = async (uri: string, mapper: EntryMapper = mo
       } catch (e) {
         // A failing abort must not mask the failure that caused it.
         await session.abortTransaction().catch(() => {});
-        throw classifyMongoError(e);
+        // classifyMongoError expects a raw driver error (reads .code/.hasErrorLabel); an error we
+        // threw ourselves above has neither, and would otherwise fall through to "no code means
+        // retryable" — turning a deliberate, permanent rejection into an infinite retry loop.
+        throw e instanceof FatalOperationError || e instanceof RetryableError ? e : classifyMongoError(e);
       } finally {
         await session.endSession();
       }

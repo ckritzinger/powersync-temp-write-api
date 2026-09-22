@@ -2,11 +2,11 @@
 
 ## TODO
 
- - [ ] server-side dead-lettering is not implemented.
+ - [ ] server-side dead-lettering has a seam (`backend/src/dlq.ts`) but no real sink — the default
+       just logs, so a restart loses everything it "queued."
  - [ ] No auth on /api/auth/token out of box. Quickstart path = open door.
  - [ ] Boot behavior inconsistent across DBs
  - [ ] Zero test coverage on persistence/mapping layer
- - [ ] Unmapped Mongo table writes fail silently
  - [ ] Fully typed client vs fetch-only single-file that can be copypastaed
 
 ## Intro

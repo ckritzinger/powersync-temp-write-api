@@ -69,6 +69,13 @@ Two ways around that:
   (Postgres shown; same idea in any persister with a live connection — a lookup before the write,
   or the ownership check folded straight into the `WHERE` clause.)
 
+## MongoDB, MySQL, SQL Server
+
+No native row-level security exists, and none is added here. `auth` is threaded into each of these persisters'
+`updateBatch` too, but unused. Real authorization for these means writing it yourself, either as
+a coarse check in `authorize()`, or inline in that database's persister where you have a live
+connection to query or condition the write against.
+
 ## Postgres: row-level security
 
 Postgres is the only one of the four supported databases with a built-in mechanism for this.
@@ -89,10 +96,3 @@ CREATE POLICY owner_only ON lists
 
 **No policies are defined by this reference backend.** The session variable is wired through;
 writing (and enabling) the policies for your schema is yours to do.
-
-## MongoDB, MySQL, SQL Server
-
-No equivalent exists, and none is added here. `auth` is threaded into each of these persisters'
-`updateBatch` too, but unused — real authorization for these means writing it yourself, either as
-a coarse check in `authorize()`, or inline in that database's persister where you have a live
-connection to query or condition the write against.

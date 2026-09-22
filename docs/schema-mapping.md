@@ -23,10 +23,23 @@ pass straight through, unrenamed and untyped. It logs an error on every call say
 it's fine for a PowerSync table that already matches your DB schema column-for-column, and wrong
 the moment it doesn't.
 
-**`mongoMapper`** (used by MongoDB) is the one non-trivial built-in example: a static
-per-collection type-coercion table in `backend/src/persistance/mongo/mongo-schema.ts`, applied to
-every field the schema names. A table with no entry in that schema logs an error and gets its
-operations dropped, rather than failing silently.
+**The Mongo mapper** (`createMongoMapper`, used by MongoDB) is the one non-trivial built-in
+example: at boot, `discoverSchema` (`backend/src/persistance/mongo/mongo-schema.ts`) reads each
+collection's own MongoDB `$jsonSchema` validator via `db.listCollections()` and derives a
+per-field type-coercion table from it.
+
+This exists because there is no MongoDB-native equivalent of "table doesn't exist"
+to fail against the way SQL does.
+
+A collection with no validator configured (including one that doesn't exist yet) is treated
+strictly rather than guessed at: `mongo-persistance.ts` dead-letters the raw entry via
+`backend/src/dlq.ts` and rejects the whole transaction as `fatal_error`/`SCHEMA_MISMATCH`, rather
+than writing it through unconverted or silently dropping it.
+
+Add a `$jsonSchema` validator to a collection to have writes to it accepted and coerced again.
+
+The schema snapshot is taken once at boot; a validator added or changed on a running server needs
+a restart to be picked up.
 
 ## Patterns for a real mapper
 
@@ -46,7 +59,7 @@ operations dropped, rather than failing silently.
 
 ## What this interface cannot do
 
-`EntryMapper` is deliberately narrow, and two things don't fit it — don't contort a mapper to
+`EntryMapper` is deliberately narrow, and two things don't fit it. Don't contort a mapper to
 attempt them:
 
 - **Fan-out.** One `CrudEntry` becomes exactly one `MappedEntry`. If a single PowerSync operation
