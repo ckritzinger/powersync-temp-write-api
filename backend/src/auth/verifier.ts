@@ -2,7 +2,12 @@ import { readFile } from 'node:fs/promises';
 import { createTokenVerifier, resolvePowerSyncAuth } from './verifier/index.js';
 import type { AuthSupplements } from './verifier/index.js';
 
-const dump: unknown = JSON.parse(await readFile('./powersync-config.json', 'utf8'));
+// The CLI writes the dump wherever you run `powersync fetch config`; this repo keeps it at the
+// backend root. Resolving against this module — not the process cwd — means it is found whether
+// the server is started from here, from the repo root or from /app in the container. Point
+// POWERSYNC_CONFIG_PATH (relative to cwd, or absolute) somewhere else if you keep it elsewhere.
+const dumpPath = process.env.POWERSYNC_CONFIG_PATH ?? new URL('../../powersync-config.json', import.meta.url);
+const dump: unknown = JSON.parse(await readFile(dumpPath, 'utf8'));
 
 // Start with no supplements and let the diagnostics tell you what is missing. The common ones:
 

@@ -10,9 +10,19 @@ backend, and the [PowerSync CLI](https://github.com/powersync-ja/powersync-cli) 
 
 ```sh
 powersync login                 # or set PS_ADMIN_TOKEN
+
 powersync fetch instances       # find the instance you want
+
+1. Option 1
 powersync link cloud            # link this directory to it, once
 powersync fetch config --output=json > powersync-config.json
+
+2. Option 2
+powersync fetch config \
+  --instance-id="<instance-id>" \
+  --project-id="<project-id>" \
+  --org-id="<org-id>" \
+  --output=json > powersync-config.json
 ```
 
 If the directory is not linked, pass `--instance-id=<instance-id>` to `fetch config` instead of
