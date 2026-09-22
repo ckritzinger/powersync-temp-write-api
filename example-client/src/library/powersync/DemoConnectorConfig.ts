@@ -29,6 +29,11 @@ export const DEFAULT_BATCHING_CONFIG: BatchingConfig = {
   onFatalError: 'stop'
 };
 
+// Must match backend/openapi.yaml TransactionBatch.transactions maxItems. A batch above this is
+// rejected with a 400 on every attempt, and since OpenAPITransport/PowersyncConnector treat any
+// non-auth transport error as retryable, that wedges the upload queue in an infinite retry loop.
+export const SERVER_MAX_BATCH_TRANSACTIONS = 50;
+
 export const readBatchingConfig = (): BatchingConfig | null => {
   const maxTransactions = Number(import.meta.env.VITE_BATCH_MAX_TRANSACTIONS ?? '');
 
@@ -36,10 +41,19 @@ export const readBatchingConfig = (): BatchingConfig | null => {
     return null;
   }
 
+  let clampedMaxTransactions = maxTransactions;
+  if (maxTransactions > SERVER_MAX_BATCH_TRANSACTIONS) {
+    console.warn(
+      `VITE_BATCH_MAX_TRANSACTIONS=${maxTransactions} exceeds the backend's cap of ${SERVER_MAX_BATCH_TRANSACTIONS} ` +
+        `transactions per batch; clamping to ${SERVER_MAX_BATCH_TRANSACTIONS} to avoid every upload being rejected.`
+    );
+    clampedMaxTransactions = SERVER_MAX_BATCH_TRANSACTIONS;
+  }
+
   const maxOperations = Number(import.meta.env.VITE_BATCH_MAX_OPERATIONS ?? '');
 
   return {
-    maxTransactions,
+    maxTransactions: clampedMaxTransactions,
     maxOperations: Number.isInteger(maxOperations) && maxOperations > 0 ? maxOperations : DEFAULT_MAX_OPERATIONS,
     onFatalError: import.meta.env.VITE_BATCH_ON_FATAL_ERROR === 'skip' ? 'skip' : 'stop'
   };
