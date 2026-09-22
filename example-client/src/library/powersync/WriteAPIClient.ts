@@ -63,6 +63,8 @@ export interface TransactionBatchResult {
 
 export interface WriteAPIClientOptions {
   transport: WriteAPITransport;
+  // userId/clientId are currently unused by processTransactionBatch below — kept here for callers
+  // who want to extend the request body with them, not because anything reads them today.
   userId: string;
   clientId: string;
 }

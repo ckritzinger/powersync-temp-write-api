@@ -62,7 +62,7 @@ Two ways around that:
   ```ts
   // const { rows } = await client.query('SELECT owner_id FROM lists WHERE id = $1', [entry.id]);
   // if (rows[0]?.owner_id !== auth.sub) {
-  //   throw new FatalOperationError('unauthorized', 'Not the owner of this row');
+  //   throw new FatalOperationError('UNAUTHORIZED', 'Not the owner of this row');
   // }
   ```
 

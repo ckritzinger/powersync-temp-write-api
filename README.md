@@ -59,12 +59,13 @@ For the API to be usable, you need to perform the following config:
    | --- | --- |
    | `DATABASE_TYPE` | `postgres`, `mongodb`, `mysql`, or `mssql` |
    | `DATABASE_URI` | Connection string for your source database |
-   | `PORT` | Defaults to 6060 |
+   | `PORT` | Defaults to 6060. Only applies to the bare-host run path (`pnpm start`/`pnpm dev`); the Quickstart's `docker compose up` hardcodes `PORT: "6060"` and a fixed `"6060:6060"` port mapping in `docker-compose.yaml`, so setting `PORT` in `.env` has no effect there — edit `docker-compose.yaml` itself to change the Docker-Compose port. |
    | `POWERSYNC_URL`, `JWT_ISSUER` | Audience and issuer for the tokens this backend mints — must match your PowerSync instance's auth settings |
    | `POWERSYNC_PRIVATE_KEY`, `POWERSYNC_PUBLIC_KEY` | The signing keys from step 1 |
 
-   The backend refuses to start, before serving any traffic, if `DATABASE_URI` is unset or
-   `DATABASE_TYPE` isn't one of the four above — with a message naming the fix, not a stack trace.
+   The backend refuses to start, before serving any traffic, if `DATABASE_URI` is unset — with a
+   message naming the fix, not a stack trace. `DATABASE_TYPE` is not strictly required alongside
+   it: if unset, it defaults to `postgres` rather than failing boot.
 
 3. **Your client needs code to actually call this backend.** Nothing calls `/api/data` for you —
    copy the pieces in `example-client/` into your app to perform writes. See
@@ -114,8 +115,9 @@ used to write data back from the PowerSync client. The two auth endpoints below 
 ancillary/for development purposes and are not included in the Write API spec.
 
 - **POST `/api/data`** — the only write endpoint. Accepts a transaction batch (an ordered run of
-  whole transactions from the client's upload queue) and applies each in its own database
-  transaction, stopping at the first failure. Optional `on_fatal_error` in the body: `stop`
+  whole transactions from the client's upload queue, capped at 50 transactions per request — see
+  `TransactionBatch.transactions.maxItems` in `backend/openapi.yaml`) and applies each in its own
+  database transaction, stopping at the first failure. Optional `on_fatal_error` in the body: `stop`
   (default) ends the batch there; `skip` drops that transaction and continues, so a queue blocked
   by one poison operation can still drain. Either way, the response reports one result per
   transaction sent, so the client always knows what was applied.
@@ -167,7 +169,9 @@ shadows the container port.
   authentication. Every authenticated write is currently allowed, no matter what it touches. See
   [docs/authorization.md](./docs/authorization.md).
 - `backend/src/mapping/` how a `CrudEntry` becomes a database write. The default is a naive 1:1
-  field pass-through. See [docs/schema-mapping.md](./docs/schema-mapping.md).
+  field pass-through for Postgres/MySQL/MSSQL — but Mongo's default mapper behaves differently: it
+  dead-letters and fatal-errors any write to a collection without a pre-existing `$jsonSchema`
+  validator, a bigger first-integration lift. See [docs/schema-mapping.md](./docs/schema-mapping.md).
 
 ## Tests
 

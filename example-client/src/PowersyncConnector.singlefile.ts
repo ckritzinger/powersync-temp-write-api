@@ -55,8 +55,15 @@ const POWERSYNC_URL = '';
 /** localStorage key used to persist the demo auth's anonymous user id across reloads. */
 const USER_ID_STORAGE_KEY = 'ps_user_id';
 
-/** Transactions per upload request. 1 uploads one transaction per attempt (the safest default). */
+/**
+ * Transactions per upload request. 1 uploads one transaction per attempt (the safest default).
+ * Keep this at or below 50 — the backend rejects any larger batch with a 400 (see
+ * backend/openapi.yaml TransactionBatch.transactions maxItems), and since onTransportError below
+ * treats any non-auth transport error as retryable, a batch above the cap wedges the upload queue
+ * in an infinite retry loop.
+ */
 const MAX_TRANSACTIONS_PER_BATCH = 1;
+const SERVER_MAX_BATCH_TRANSACTIONS = 50;
 
 /** Upper bound on total CRUD operations per upload request, regardless of transaction count. */
 const MAX_OPERATIONS_PER_BATCH = 1000;
@@ -154,8 +161,17 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
    * network conditions).
    */
   protected getBatchingConfig() {
+    let maxTransactions = MAX_TRANSACTIONS_PER_BATCH;
+    if (maxTransactions > SERVER_MAX_BATCH_TRANSACTIONS) {
+      console.warn(
+        `MAX_TRANSACTIONS_PER_BATCH=${maxTransactions} exceeds the backend's cap of ${SERVER_MAX_BATCH_TRANSACTIONS} ` +
+          `transactions per batch; clamping to ${SERVER_MAX_BATCH_TRANSACTIONS} to avoid every upload being rejected.`
+      );
+      maxTransactions = SERVER_MAX_BATCH_TRANSACTIONS;
+    }
+
     return {
-      maxTransactions: MAX_TRANSACTIONS_PER_BATCH,
+      maxTransactions,
       maxOperations: MAX_OPERATIONS_PER_BATCH,
       onFatalError: ON_FATAL_ERROR
     };
