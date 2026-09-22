@@ -13,6 +13,7 @@ src/
 ├── generated/api.d.ts               # Types generated from backend/openapi.yaml
 ├── PowersyncConnector.ts            # PowerSyncBackendConnector wiring the below into fetchCredentials/uploadData
 ├── PowersyncConnector.singlefile.ts # Same connector, zero deps beyond @powersync/*
+├── PowersyncConnector.singlefile.prompt.md # Maintainer-only: the prompt used to regenerate the file above via an AI agent, not needed for integration
 └── library/powersync/
     ├── AppSchema.ts                 # Example PowerSync schema — replace with your own tables
     ├── WriteAPIClient.ts            # Turns a PowerSync CrudTransaction into a POST /api/data call

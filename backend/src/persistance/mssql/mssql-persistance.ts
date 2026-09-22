@@ -7,7 +7,7 @@ import { defaultMapper } from '../../mapping/default.js';
 import type { AuthContext } from '../../auth/types.js';
 
 function escapeIdentifier(identifier: string): string {
-  return `[${identifier}]`;
+  return `[${identifier.replace(/]/g, ']]')}]`;
 }
 
 export const createMSSQLPersister = async (uri: string, mapper: EntryMapper = defaultMapper): Promise<Persister> => {

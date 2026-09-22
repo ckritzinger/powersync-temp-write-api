@@ -19,6 +19,11 @@ This repo assumes you already have:
    SQLite database with data mutations via `db.execute(...)`, as described in the
    [PowerSync Setup Guide](https://docs.powersync.com/intro/setup-guide#write-data).
 
+   > The setup guide's `uploadData()` example is built on the older, singular
+   > `getNextCrudTransaction()`. This repo's `example-client` instead uses the newer, plural
+   > `getCrudTransactions()` async-iterator API (`@powersync/web`/`@powersync/react-native`
+   > >=1.26.0) — see `example-client/README.md`. Don't mix the two shapes.
+
 PowerSync automatically queues these mutations and calls your `uploadData()` function, which is
 where you upload the changes to your backend. The write API is that backend: it persists the
 mutations to your source database. The `example-client` folder has a reference implementation of
