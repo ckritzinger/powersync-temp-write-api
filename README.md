@@ -1,15 +1,6 @@
 # PowerSync Write API
 
-## TODO
-
- - [ ] server-side dead-lettering has a seam (`backend/src/dlq.ts`) but no real sink — the default
-       just logs, so a restart loses everything it "queued."
- - [ ] No auth on /api/auth/token out of box. Quickstart path = open door.
- - [ ] Boot behavior inconsistent across DBs
- - [ ] Zero test coverage on persistence/mapping layer
- - [ ] Fully typed client vs fetch-only single-file that can be copypastaed
-
-## Intro
+## Intro/Overview
 
 This is a self-hostable backend for the PowerSync write path: a client uploads its queued local changes to
 an HTTP API, which persists them to your source database. PowerSync replicates that database back
