@@ -38,6 +38,8 @@
 //
 // ============================================================================================
 
+// Requires @powersync/web (or @powersync/react-native) >=1.26.0 — that's the version
+// getCrudTransactions() was added in, and uploadTransactionBatch() below depends on it.
 import type { AbstractPowerSyncDatabase, CrudEntry, CrudTransaction, PowerSyncBackendConnector } from '@powersync/web';
 
 // ------------------------------------------------------------------------------------------

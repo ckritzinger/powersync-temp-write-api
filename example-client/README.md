@@ -33,7 +33,7 @@ one dependency-light file with its own header comment covering config and auth.
 The implementation assumes that your `package.json` contains the following dependencies:
 
 ```
-@powersync/web    # or @powersync/react-native
+@powersync/web    # or @powersync/react-native, >=1.26.0 required for getCrudTransactions()
 openapi-fetch
 uuid
 ```

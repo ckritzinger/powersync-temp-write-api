@@ -1,5 +1,7 @@
 import { v4 as uuid } from 'uuid';
 
+// Requires @powersync/web (or @powersync/react-native) >=1.26.0 — that's the version
+// getCrudTransactions() was added in, and uploadTransactionBatch() below depends on it.
 import type { AbstractPowerSyncDatabase, CrudTransaction, PowerSyncBackendConnector } from '@powersync/web';
 import { WriteAPIClient, type TransactionResult } from './library/powersync/WriteAPIClient';
 import { AuthenticationError, createOpenAPIClient, type OpenAPIClient } from './library/powersync/OpenAPITransport';
