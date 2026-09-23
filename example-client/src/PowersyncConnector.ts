@@ -3,10 +3,20 @@ import { v4 as uuid } from 'uuid';
 // Requires @powersync/web (or @powersync/react-native) >=1.26.0 — that's the version
 // getCrudTransactions() was added in, and uploadTransactionBatch() below depends on it.
 import type { AbstractPowerSyncDatabase, CrudTransaction, PowerSyncBackendConnector } from '@powersync/web';
-import { WriteAPIClient, type TransactionResult } from './library/powersync/WriteAPIClient';
+import {
+  WriteAPIClient,
+  type TransactionResult,
+  type ClientHandledFatalResult
+} from './library/powersync/WriteAPIClient';
 import { AuthenticationError, createOpenAPIClient, type OpenAPIClient } from './library/powersync/OpenAPITransport';
-import { DEFAULT_BATCHING_CONFIG, readDemoConfig, USER_ID_STORAGE_KEY, type BatchingConfig, type DemoConfig } from './library/powersync/DemoConnectorConfig';
-import { completionBoundary, sleep } from './library/powersync/TransactionBatching';
+import {
+  DEFAULT_BATCHING_CONFIG,
+  readDemoConfig,
+  USER_ID_STORAGE_KEY,
+  type BatchingConfig,
+  type DemoConfig
+} from './library/powersync/DemoConnectorConfig';
+import { completeAcceptedPrefix, sleep } from './library/powersync/TransactionBatching';
 
 export class PowersyncConnector implements PowerSyncBackendConnector {
   // ===========================================================================================
@@ -106,7 +116,7 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
    * The batching config to use for the current upload. Reads the env-derived default; override to
    * make batching dynamic (e.g. shrink batch size after a fatal error, adjust for network conditions).
    */
-  protected getBatchingConfig(): BatchingConfig  {
+  protected getBatchingConfig(): BatchingConfig {
     return this.config.batching || DEFAULT_BATCHING_CONFIG;
   }
 
@@ -122,17 +132,16 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
   }
 
   /**
-   * Called when the backend permanently rejects a transaction (a bug in the application, not a
-   * transient failure). The transaction is discarded and the queue moves on regardless of what
-   * this method does.
-   *
-   * Default behaviour is to log and drop the data. Dead-lettering should happen server-side, where
-   * the failed write can actually be inspected and fixed — a client-side dead-letter queue is opaque
-   * to that process. Override to alert someone or forward `result` to a backend endpoint, not to
-   * store it locally.
+   * Called only for client-directed fatal errors. Retaining blocks later uploads and may call
+   * this hook again. Return 'complete' to explicitly discard the failed transaction.
+   * See docs/error-handling.md for user interaction and notification deduplication guidance.
    */
-  protected async onFatalTransaction(transaction: CrudTransaction, result: TransactionResult): Promise<void> {
-    console.error('Fatal error:', result.failedOperation?.error_code, result.message);
+  protected async onFatalTransaction(
+    transaction: CrudTransaction,
+    result: ClientHandledFatalResult
+  ): Promise<'retain' | 'complete'> {
+    console.error('Client handling required:', result.failedOperation.error_code, result.message);
+    return 'retain';
   }
 
   /**
@@ -141,7 +150,7 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
    * which causes PowerSync to retry the upload. Override to add custom logging/backoff, but a
    * retryable error must still result in a thrown error so the transaction stays in the queue.
    */
-  protected async onRetryableError(result: TransactionResult): Promise<never> {
+  protected async onRetryableError(result: Extract<TransactionResult, { status: 'retryable_error' }>): Promise<never> {
     await sleep(result.retryAfterMs ?? 0);
     throw new Error(result.message ?? 'Retryable error');
   }
@@ -187,32 +196,17 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
 
     let results: TransactionResult[];
     try {
-      ({ results } = await writeClient.processTransactionBatch(batch, batching.onFatalError));
+      ({ results } = await writeClient.processTransactionBatch(batch));
     } catch (error) {
       await this.onTransportError(error);
       return;
     }
 
-    // Report everything the backend dropped *before* completing over it, via the same
-    // overridable hook the single-transaction path uses.
-    for (const [index, result] of results.entries()) {
-      if (result.status === 'fatal_error') {
-        await this.onFatalTransaction(batch[index], result);
-      }
-    }
-
-    // One completion per batch, at the completion boundary. Completing a transaction also completes
-    // every transaction before it, so completing each success in turn would be redundant.
-    const boundary = completionBoundary(results);
-    if (boundary >= 0) {
-      await batch[boundary].complete();
-    }
-
-    // Anything from the failure onwards stays in the queue. Completing the applied prefix first means
-    // the retry resumes from the failure instead of re-uploading transactions that already committed.
-    const retryable = results.find((result) => result.status === 'retryable_error');
-    if (retryable) {
-      await this.onRetryableError(retryable);
-    }
+    await completeAcceptedPrefix(
+      batch,
+      results,
+      (index, result) => this.onFatalTransaction(batch[index], result),
+      (result) => this.onRetryableError(result)
+    );
   }
 }

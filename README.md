@@ -55,11 +55,13 @@ For the API to be usable, you need to perform the following config:
    | `DATABASE_TYPE` | `postgres`, `mongodb`, `mysql`, or `mssql` |
    | `DATABASE_URI` | Connection string for your source database |
    | `PORT` | Defaults to 6060 |
+   | `BATCH_ON_FATAL_ERROR` | `stop` (default) or `skip`; controls continuation after backend-directed fatal failures |
    | `POWERSYNC_URL`, `JWT_ISSUER` | Audience and issuer for the tokens this backend mints — must match your PowerSync instance's auth settings |
    | `POWERSYNC_PRIVATE_KEY`, `POWERSYNC_PUBLIC_KEY` | The signing keys from step 1 |
 
    The backend refuses to start, before serving any traffic, if `DATABASE_URI` is unset or
-   `DATABASE_TYPE` isn't one of the four above — with a message naming the fix, not a stack trace.
+   `DATABASE_TYPE` isn't one of the four above, or `BATCH_ON_FATAL_ERROR` is invalid — with a
+   message naming the fix, not a stack trace.
 
 3. **Your client needs code to actually call this backend.** Nothing calls `/api/data` for you —
    copy the pieces in `example-client/` into your app to perform writes. See
@@ -110,16 +112,18 @@ ancillary/for development purposes and are not included in the Write API spec.
 
 - **POST `/api/data`** — the only write endpoint. Accepts a transaction batch (an ordered run of
   whole transactions from the client's upload queue) and applies each in its own database
-  transaction, stopping at the first failure. Optional `on_fatal_error` in the body: `stop`
-  (default) ends the batch there; `skip` drops that transaction and continues, so a queue blocked
-  by one poison operation can still drain. Either way, the response reports one result per
-  transaction sent, so the client always knows what was applied.
+  transaction. Backend environment setting `BATCH_ON_FATAL_ERROR=stop` (default) ends the batch
+  at the first failure; `skip` continues after backend-directed fatal failures. Client-directed
+  fatal failures and retryable failures always stop the batch. Either way, the response reports
+  one result per transaction sent, so the client always knows what was applied.
 
 Every failure is either **retryable** (deadlock, lock timeout, connection loss)
 or **fatal** (bad data that can never be stored, or an error the backend doesn't
 recognize).
 Each supported database maps its driver's own errors onto these two in `backend/src/persistance/*/*-errors.ts`.
-Unrecognized errors default to fatal rather than being retried forever.
+Unrecognized errors default to fatal rather than being retried forever. Fatal errors default to
+backend handling; client-directed failures always stop the batch and remain queued pending an
+explicit client decision. See [error handling and developer-managed dead letters](docs/error-handling.md).
 
 [node-postgres](https://github.com/brianc/node-postgres),
 [mongodb](https://www.npmjs.com/package/mongodb), [mysql2](https://www.npmjs.com/package/mysql2),

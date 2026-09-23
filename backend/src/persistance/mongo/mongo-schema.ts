@@ -48,7 +48,7 @@ function tableSchemaFromJsonSchema(jsonSchema: Record<string, unknown>): TableSc
  * instead of a hand-maintained static map. Only collections with a real $jsonSchema validator get
  * an entry — a collection with none configured, or that doesn't exist yet, is absent from the
  * result. That absence is load-bearing: the caller (mongo-persistance.ts) treats "no entry" as
- * "no trustworthy shape to write against" and dead-letters the write instead of guessing at it.
+ * "no trustworthy shape to write against" and rejects the transaction for shared error routing.
  *
  * Captured once at boot, closed over for the life of the process. A validator added or changed on
  * a running server isn't picked up until restart — the same staleness tradeoff a hand-edited

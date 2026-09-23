@@ -8,6 +8,7 @@ const POSTGRES_CODES: Record<string, ErrorCode> = {
 };
 
 export const classifyPostgresError = (error: unknown): Error => {
+  if (error instanceof FatalOperationError || error instanceof RetryableError) return error;
   const code = (error as { code?: string })?.code ?? '';
   const message = messageOf(error);
 

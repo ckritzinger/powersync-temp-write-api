@@ -15,7 +15,7 @@ export interface paths {
         put?: never;
         /**
          * Apply one or more transactions, each in its own database transaction
-         * @description Applies each transaction in order, each in its own database transaction. Stops at the first failure of any kind.
+         * @description Applies each transaction in order, each in its own database transaction. Stops at failures unless the backend BATCH_ON_FATAL_ERROR setting is skip and the failure is backend-directed.
          *     One transaction is the degenerate case, not a separate endpoint: a client uploading a single transaction sends a transactions array of length one.
          *     Results holds one entry per transaction sent, in the same order and always the same length as the request. Entries are matched to transactions positionally.
          */
@@ -67,51 +67,55 @@ export interface components {
         TransactionBatch: {
             /** @description Whole transactions to apply, in upload-queue order. A transaction is never split across batches. */
             transactions: components["schemas"]["CrudTransaction"][];
-            /**
-             * @description What to do when a transaction fails fatally.
-             *     stop (default): the batch ends; every transaction after it is
-             *       reported as not_attempted.
-             *     skip: the failing transaction is dropped and the batch continues.
-             *       Its result still reports fatal_error with the error
-             *       classification, so the client can record that it discarded the
-             *       transaction.
-             *
-             *     Applies to fatal failures only. A retryable failure always ends the batch.
-             * @default stop
-             * @enum {string}
-             */
-            on_fatal_error: "stop" | "skip";
         };
         TransactionBatchResponse: {
             /** @description One result per transaction sent, in the same order. Always the same length as the transactions array in the request. */
             results: components["schemas"]["TransactionResponse"][];
         };
-        TransactionResponse: {
+        TransactionResponse: components["schemas"]["SuccessResult"] | components["schemas"]["RetryableResult"] | components["schemas"]["FatalResult"] | components["schemas"]["NotAttemptedResult"];
+        SuccessResult: {
             /**
-             * @description success: entire transaction persisted, safe to complete. retryable_error: transient failure, transaction rolled back,
-             *       client should retry.
-             *     fatal_error: transaction rolled back due to a non-recoverable
-             *       issue — see failed_operation for details.
-             *     not_attempted: the batch ended before this transaction was reached,
-             *       so nothing was applied.
+             * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
-            status: "success" | "retryable_error" | "fatal_error" | "not_attempted";
-            /** @description Suggested retry delay in ms. Only meaningful for retryable_error. */
+            status: "success";
+        };
+        RetryableResult: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            status: "retryable_error";
+            message?: string;
             retry_after_ms?: number;
-            /** @description Present when status is fatal_error. Identifies what caused the rollback. */
-            failed_operation?: components["schemas"]["FailedOperation"];
-            /** @description Human-readable detail for logging/debugging. Present on failures; a successful transaction carries a bare status. */
+        };
+        NotAttemptedResult: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            status: "not_attempted";
+        };
+        FatalResult: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            status: "fatal_error";
+            /** @description True retains the transaction pending an explicit client decision and always stops the batch. */
+            requires_client_handling: boolean;
+            failed_operation: components["schemas"]["FailedOperation"];
             message?: string;
         };
         FailedOperation: {
-            /**
-             * @description Machine-readable classification, backend-specific. CONSTRAINT_VIOLATION is a constraint the backend could not identify more precisely; INVALID_DATA is a value that cannot be stored in the column, e.g. malformed or out of range; UNAUTHORIZED is a rejected authorization check; UNCLASSIFIED_ERROR is an error the backend didn't recognize.
-             * @enum {string}
-             */
-            error_code: "NOT_NULL_VIOLATION" | "UNIQUE_VIOLATION" | "FOREIGN_KEY_VIOLATION" | "CHECK_VIOLATION" | "CONSTRAINT_VIOLATION" | "INVALID_DATA" | "SCHEMA_MISMATCH" | "DOCUMENT_VALIDATION_FAILURE" | "UNAUTHORIZED" | "UNCLASSIFIED_ERROR";
+            /** @description Machine-readable classification, backend-specific. CONSTRAINT_VIOLATION is a constraint the backend could not identify more precisely; INVALID_DATA is a value that cannot be stored in the column, e.g. malformed or out of range; UNAUTHORIZED is a rejected authorization check; UNCLASSIFIED_ERROR is an error the backend didn't recognize. */
+            error_code: string;
             /** @description Human-readable error detail. */
             message?: string;
+            /** @description Application-defined JSON value; no application schema is imposed. */
+            details?: unknown;
+            /** @description Zero-based index in the original transaction, omitted for transaction-level failures. */
+            operation_index?: number;
         };
         MessageResponse: {
             message: string;

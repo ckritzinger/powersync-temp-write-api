@@ -21,6 +21,7 @@ const RETRYABLE_MYSQL_CODES = new Set([
 ]);
 
 export const classifyMySQLError = (error: unknown): Error => {
+  if (error instanceof FatalOperationError || error instanceof RetryableError) return error;
   const { errno, sqlState, code } = (error as { errno?: number; sqlState?: string; code?: string }) ?? {};
   const message = messageOf(error);
 
