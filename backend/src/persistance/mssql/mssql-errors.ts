@@ -24,6 +24,7 @@ const RETRYABLE_MSSQL_NUMBERS = new Set([1205, 1222]);
 const RETRYABLE_MSSQL_CODES = new Set(['ETIMEOUT', 'ESOCKET', 'ECONNCLOSED', 'ECONNREFUSED']);
 
 export const classifyMSSQLError = (error: unknown): Error => {
+  if (error instanceof FatalOperationError || error instanceof RetryableError) return error;
   const { number, code } = (error as { number?: number; code?: string }) ?? {};
   const message = messageOf(error);
 

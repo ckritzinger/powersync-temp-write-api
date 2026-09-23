@@ -77,3 +77,7 @@ Once you have a real identity provider, replace `fetchCredentials()` with a mech
 a token from it — ideally the same token you use to authenticate against your own write API too.
 For further details of how to implement production quality authentication on various platforms,
 please see [`../docs/auth-verifiers.md`](../docs/auth-verifiers.md).
+
+See [error handling and developer-managed dead letters](../docs/error-handling.md) for the
+`onFatalTransaction` retain/complete hook, custom codes/details, queue blocking, and coordinated
+backend/connector deployment.

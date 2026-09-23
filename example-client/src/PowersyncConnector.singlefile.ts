@@ -64,7 +64,8 @@ const MAX_OPERATIONS_PER_BATCH = 1000;
 /**
  * What the backend should do when a transaction in a batch fails fatally.
  * 'stop' (default): the batch ends, everything after the failure is reported not_attempted.
- * 'skip': the failing transaction is dropped and the batch continues.
+ * 'skip': a backend-directed failure is dropped and the batch continues.
+ * Client-directed failures always stop the batch and await an explicit client decision.
  */
 const ON_FATAL_ERROR: OnFatalError = 'stop';
 
@@ -99,7 +100,7 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
   async fetchCredentials() {
     return {
       endpoint: POWERSYNC_URL,
-      // Most likely you want to replace this with whatever you're already using to get a token 
+      // Most likely you want to replace this with whatever you're already using to get a token
       // from your identity provider, so the sync connection and write API share the same auth.
       token: await this.getAuthToken()
     };
@@ -162,17 +163,16 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
   }
 
   /**
-   * Called when the backend permanently rejects a transaction (a bug in the application, not a
-   * transient failure). The transaction is discarded and the queue moves on regardless of what
-   * this method does.
-   *
-   * Default behaviour is to log and drop the data. Dead-lettering should happen server-side, where
-   * the failed write can actually be inspected and fixed — a client-side dead-letter queue is opaque
-   * to that process. Override to alert someone or forward `result` to a backend endpoint, not to
-   * store it locally.
+   * Called only for client-directed fatal errors. Retaining blocks later uploads and may call
+   * this hook again. Return 'complete' to explicitly discard the failed transaction.
+   * See docs/error-handling.md for user interaction and notification deduplication guidance.
    */
-  protected async onFatalTransaction(transaction: CrudTransaction, result: TransactionResult): Promise<void> {
-    console.error('Fatal error:', result.failedOperation?.error_code, result.message);
+  protected async onFatalTransaction(
+    transaction: CrudTransaction,
+    result: ClientHandledFatalResult
+  ): Promise<'retain' | 'complete'> {
+    console.error('Client handling required:', result.failedOperation.error_code, result.message);
+    return 'retain';
   }
 
   /**
@@ -181,7 +181,7 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
    * which causes PowerSync to retry the upload. Override to add custom logging/backoff, but a
    * retryable error must still result in a thrown error so the transaction stays in the queue.
    */
-  protected async onRetryableError(result: TransactionResult): Promise<never> {
+  protected async onRetryableError(result: Extract<TransactionResult, { status: 'retryable_error' }>): Promise<never> {
     await sleep(result.retryAfterMs ?? 0);
     throw new Error(result.message ?? 'Retryable error');
   }
@@ -225,7 +225,9 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
       const { message } = (await response.json().catch(() => ({ message: response.statusText }))) as MessageResponseAPI;
 
       if (response.status === 401 || response.status === 403) {
-        throw new AuthenticationError(`Authentication failed (${response.status}) posting transaction batch: ${message}`);
+        throw new AuthenticationError(
+          `Authentication failed (${response.status}) posting transaction batch: ${message}`
+        );
       }
       throw new Error(`Failed to post transaction batch (${response.status}): ${message}`);
     }
@@ -267,27 +269,12 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
       return;
     }
 
-    // Report everything the backend dropped *before* completing over it, via the same
-    // overridable hook the single-transaction path uses.
-    for (const [index, result] of results.entries()) {
-      if (result.status === 'fatal_error') {
-        await this.onFatalTransaction(batch[index], result);
-      }
-    }
-
-    // One completion per batch, at the completion boundary. Completing a transaction also completes
-    // every transaction before it, so completing each success in turn would be redundant.
-    const boundary = completionBoundary(results);
-    if (boundary >= 0) {
-      await batch[boundary].complete();
-    }
-
-    // Anything from the failure onwards stays in the queue. Completing the applied prefix first means
-    // the retry resumes from the failure instead of re-uploading transactions that already committed.
-    const retryable = results.find((result) => result.status === 'retryable_error');
-    if (retryable) {
-      await this.onRetryableError(retryable);
-    }
+    await completeAcceptedPrefix(
+      batch,
+      results,
+      (index, result) => this.onFatalTransaction(batch[index], result),
+      (result) => this.onRetryableError(result)
+    );
   }
 }
 
@@ -333,19 +320,25 @@ type ErrorCode =
   | 'SCHEMA_MISMATCH'
   | 'DOCUMENT_VALIDATION_FAILURE'
   | 'UNAUTHORIZED'
-  | 'UNCLASSIFIED_ERROR';
+  | 'UNCLASSIFIED_ERROR'
+  | (string & {});
 
 interface FailedOperationAPI {
   error_code: ErrorCode;
+  details?: unknown;
+  operation_index?: number;
   message?: string;
 }
 
-interface TransactionResponseAPI {
-  status: TransactionStatus;
-  retry_after_ms?: number;
-  failed_operation?: FailedOperationAPI;
-  message?: string;
-}
+type TransactionResponseAPI =
+  | { status: 'success' | 'not_attempted' }
+  | { status: 'retryable_error'; message?: string; retry_after_ms?: number }
+  | {
+      status: 'fatal_error';
+      message?: string;
+      requires_client_handling: boolean;
+      failed_operation: FailedOperationAPI;
+    };
 
 /** One result per transaction sent, in the same order and always the same length as the request. */
 interface TransactionBatchResponseAPI {
@@ -361,12 +354,19 @@ interface MessageResponseAPI {
 // Internal (camelCase) result shape passed to the overridable hooks above.
 // ------------------------------------------------------------------------------------------
 
-interface TransactionResult {
-  status: TransactionStatus;
-  message?: string;
-  failedOperation?: FailedOperationAPI;
-  retryAfterMs?: number;
-}
+type TransactionResult =
+  | { status: 'success' | 'not_attempted' }
+  | { status: 'retryable_error'; message?: string; retryAfterMs?: number }
+  | {
+      status: 'fatal_error';
+      message?: string;
+      requiresClientHandling: boolean;
+      failedOperation: FailedOperationAPI;
+    };
+
+type ClientHandledFatalResult = Extract<TransactionResult, { status: 'fatal_error' }> & {
+  requiresClientHandling: true;
+};
 
 /** Thrown when the backend rejects a request as unauthenticated/unauthorized (401/403). */
 class AuthenticationError extends Error {
@@ -378,27 +378,62 @@ class AuthenticationError extends Error {
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-/**
- * The completion boundary: the index of the last transaction the client may complete through, or
- * `-1` if it may complete nothing.
- *
- * `success` is completable, and so is `fatal_error`: the transaction is being discarded, either
- * because the backend skipped it or because this connector discards unrecoverable writes rather
- * than blocking the queue forever. `retryable_error` and `not_attempted` are NOT completable,
- * those transactions were not applied and must stay in the queue for the next attempt.
- */
-const completionBoundary = (results: Pick<TransactionResult, 'status'>[]): number => {
+/** Complete only the contiguous accepted prefix, even when a callback throws. */
+async function completeAcceptedPrefix(
+  batch: { complete(): Promise<void> }[],
+  results: TransactionResult[],
+  onFatal: (index: number, result: ClientHandledFatalResult) => Promise<'retain' | 'complete'>,
+  onRetryable: (result: Extract<TransactionResult, { status: 'retryable_error' }>) => Promise<never>
+): Promise<void> {
+  if (!Array.isArray(results) || results.length !== batch.length) throw new Error('Invalid batch result count');
   let boundary = -1;
-
-  for (const [index, result] of results.entries()) {
-    if (result.status !== 'success' && result.status !== 'fatal_error') {
-      break;
+  try {
+    for (const [index, result] of results.entries()) {
+      if (result?.status === 'success') {
+        boundary = index;
+        continue;
+      }
+      if (result?.status === 'fatal_error') {
+        if (
+          typeof result.requiresClientHandling !== 'boolean' ||
+          !result.failedOperation ||
+          typeof result.failedOperation.error_code !== 'string' ||
+          (result.failedOperation.message !== undefined && typeof result.failedOperation.message !== 'string') ||
+          (result.failedOperation.operation_index !== undefined &&
+            (!Number.isInteger(result.failedOperation.operation_index) || result.failedOperation.operation_index < 0))
+        ) {
+          throw new Error('Malformed fatal transaction result');
+        }
+        if (result.requiresClientHandling) {
+          const decision = await onFatal(index, {
+            ...result,
+            requiresClientHandling: true
+          });
+          if (decision !== 'complete') throw new Error('Fatal transaction retained for client handling');
+          boundary = index;
+          // Client-directed failures always end the backend batch. Never complete a later result.
+          return;
+        }
+        boundary = index;
+        continue;
+      }
+      if (result?.status === 'retryable_error') {
+        // Complete the accepted prefix before invoking backoff/retry hooks.
+        if (boundary >= 0) {
+          const accepted = boundary;
+          boundary = -1;
+          await batch[accepted].complete();
+        }
+        await onRetryable(result);
+        throw new Error('Retryable transaction retained');
+      }
+      if (result?.status === 'not_attempted') return;
+      throw new Error('Malformed transaction result');
     }
-    boundary = index;
+  } finally {
+    if (boundary >= 0) await batch[boundary].complete();
   }
-
-  return boundary;
-};
+}
 
 /** Shape one SDK transaction for the wire. */
 const toApiTransaction = (transaction: CrudTransaction): CrudTransactionAPI => ({
@@ -409,12 +444,24 @@ const toApiTransaction = (transaction: CrudTransaction): CrudTransactionAPI => (
     ...(op.transactionId != null && { transaction_id: op.transactionId }),
     ...(op.opData != null && { op_data: op.opData })
   })),
-  ...(transaction.transactionId != null && { transaction_id: transaction.transactionId })
+  ...(transaction.transactionId != null && {
+    transaction_id: transaction.transactionId
+  })
 });
 
-const toResult = (response: TransactionResponseAPI): TransactionResult => ({
-  status: response.status,
-  message: response.message,
-  failedOperation: response.failed_operation,
-  retryAfterMs: response.retry_after_ms
-});
+const toResult = (response: TransactionResponseAPI): TransactionResult => {
+  if (response?.status === 'fatal_error')
+    return {
+      status: response.status,
+      message: response.message,
+      requiresClientHandling: response.requires_client_handling,
+      failedOperation: response.failed_operation
+    };
+  if (response?.status === 'retryable_error')
+    return {
+      status: response.status,
+      message: response.message,
+      retryAfterMs: response.retry_after_ms
+    };
+  return response;
+};

@@ -111,7 +111,7 @@ ancillary/for development purposes and are not included in the Write API spec.
 - **POST `/api/data`** — the only write endpoint. Accepts a transaction batch (an ordered run of
   whole transactions from the client's upload queue) and applies each in its own database
   transaction, stopping at the first failure. Optional `on_fatal_error` in the body: `stop`
-  (default) ends the batch there; `skip` drops that transaction and continues, so a queue blocked
+  (default) ends the batch there; `skip` drops a backend-directed failure and continues, so a queue blocked
   by one poison operation can still drain. Either way, the response reports one result per
   transaction sent, so the client always knows what was applied.
 
@@ -119,7 +119,9 @@ Every failure is either **retryable** (deadlock, lock timeout, connection loss)
 or **fatal** (bad data that can never be stored, or an error the backend doesn't
 recognize).
 Each supported database maps its driver's own errors onto these two in `backend/src/persistance/*/*-errors.ts`.
-Unrecognized errors default to fatal rather than being retried forever.
+Unrecognized errors default to fatal rather than being retried forever. Fatal errors default to
+backend handling; client-directed failures always stop the batch and remain queued pending an
+explicit client decision. See [error handling and developer-managed dead letters](docs/error-handling.md).
 
 [node-postgres](https://github.com/brianc/node-postgres),
 [mongodb](https://www.npmjs.com/package/mongodb), [mysql2](https://www.npmjs.com/package/mysql2),

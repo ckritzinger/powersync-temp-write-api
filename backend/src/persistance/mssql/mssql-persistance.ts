@@ -1,3 +1,4 @@
+import { FatalOperationError } from '../../errors.js';
 import { URL } from 'url';
 import sql from 'mssql';
 import type { Persister, CrudEntry } from '../../types.js';
@@ -41,34 +42,35 @@ export const createMSSQLPersister = async (uri: string, mapper: EntryMapper = de
       try {
         await transaction.begin();
 
-        for (const op of batch) {
-          const mapped = mapper(op);
-          if (mapped === null) continue;
+        for (const [operationIndex, op] of batch.entries()) {
+          try {
+            const mapped = mapper(op);
+            if (mapped === null) continue;
 
-          const table = escapeIdentifier(mapped.table);
+            const table = escapeIdentifier(mapped.table);
 
-          if (mapped.op == 'PUT') {
-            const with_id: Record<string, unknown> = { ...mapped.data, id: mapped.id };
+            if (mapped.op == 'PUT') {
+              const with_id: Record<string, unknown> = { ...mapped.data, id: mapped.id };
 
-            const columnNames = Object.keys(with_id);
-            const columnsEscaped = columnNames.map(escapeIdentifier);
-            const columns = columnsEscaped.join(', ');
-            const columnParamaters = columnNames.map((c) => `@${c}`).join(', ');
-            const sourceColumns = columnsEscaped.map((column) => `source.${column}`).join(', ');
+              const columnNames = Object.keys(with_id);
+              const columnsEscaped = columnNames.map(escapeIdentifier);
+              const columns = columnsEscaped.join(', ');
+              const columnParamaters = columnNames.map((c) => `@${c}`).join(', ');
+              const sourceColumns = columnsEscaped.map((column) => `source.${column}`).join(', ');
 
-            const updateClauses: string[] = [];
-            for (const key of Object.keys(mapped.data)) {
-              if (key == 'id') {
-                continue;
+              const updateClauses: string[] = [];
+              for (const key of Object.keys(mapped.data)) {
+                if (key == 'id') {
+                  continue;
+                }
+                updateClauses.push(`${escapeIdentifier(key)} = source.${escapeIdentifier(key)}`);
               }
-              updateClauses.push(`${escapeIdentifier(key)} = source.${escapeIdentifier(key)}`);
-            }
 
-            const updateClause =
-              updateClauses.length > 0 ? `WHEN MATCHED THEN UPDATE SET ${updateClauses.join(', ')}` : null;
-            const insertClause = `WHEN NOT MATCHED THEN INSERT (${columns}) VALUES (${sourceColumns})`;
+              const updateClause =
+                updateClauses.length > 0 ? `WHEN MATCHED THEN UPDATE SET ${updateClauses.join(', ')}` : null;
+              const insertClause = `WHEN NOT MATCHED THEN INSERT (${columns}) VALUES (${sourceColumns})`;
 
-            const statement = `
+              const statement = `
             MERGE INTO ${table} AS t
             USING (VALUES (${columnParamaters})) AS source (${columns})
               ON t.[id] = source.[id]
@@ -76,46 +78,51 @@ export const createMSSQLPersister = async (uri: string, mapper: EntryMapper = de
             ${insertClause};
             `;
 
-            const request = transaction.request();
-            for (const column of columnNames) {
-              request.input(column, with_id[column]);
-            }
-            await request.query(statement);
-          } else if (mapped.op == 'PATCH') {
-            const with_id: Record<string, unknown> = { ...mapped.data, id: mapped.id };
-
-            const updateClauses: string[] = [];
-
-            for (const key of Object.keys(mapped.data)) {
-              if (key == 'id') {
-                continue;
+              const request = transaction.request();
+              for (const column of columnNames) {
+                request.input(column, with_id[column]);
               }
-              updateClauses.push(`${escapeIdentifier(key)} = @${key}`);
-            }
+              await request.query(statement);
+            } else if (mapped.op == 'PATCH') {
+              const with_id: Record<string, unknown> = { ...mapped.data, id: mapped.id };
 
-            if (updateClauses.length === 0) continue;
+              const updateClauses: string[] = [];
 
-            const statement = `
+              for (const key of Object.keys(mapped.data)) {
+                if (key == 'id') {
+                  continue;
+                }
+                updateClauses.push(`${escapeIdentifier(key)} = @${key}`);
+              }
+
+              if (updateClauses.length === 0) continue;
+
+              const statement = `
               UPDATE ${table}
               SET ${updateClauses.join(', ')}
               WHERE id = @id`;
 
-            const request = transaction.request();
-            for (const column of Object.keys(with_id)) {
-              request.input(column, with_id[column]);
-            }
+              const request = transaction.request();
+              for (const column of Object.keys(with_id)) {
+                request.input(column, with_id[column]);
+              }
 
-            await request.query(statement);
-          } else if (mapped.op == 'DELETE') {
-            const statement = `DELETE FROM ${table} WHERE id = @id`;
-            const request = transaction.request();
-            request.input('id', mapped.id);
-            await request.query(statement);
+              await request.query(statement);
+            } else if (mapped.op == 'DELETE') {
+              const statement = `DELETE FROM ${table} WHERE id = @id`;
+              const request = transaction.request();
+              request.input('id', mapped.id);
+              await request.query(statement);
+            }
+          } catch (error) {
+            const classified = classifyMSSQLError(error);
+            if (classified instanceof FatalOperationError) classified.operationIndex = operationIndex;
+            throw classified;
           }
         }
         await transaction.commit();
       } catch (e) {
-        await transaction.rollback();
+        await transaction.rollback().catch(() => {});
         throw classifyMSSQLError(e);
       }
     }
