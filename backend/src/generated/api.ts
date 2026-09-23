@@ -15,7 +15,7 @@ export interface paths {
         put?: never;
         /**
          * Apply one or more transactions, each in its own database transaction
-         * @description Applies each transaction in order, each in its own database transaction. Stops at failures unless a backend-directed fatal error is skipped.
+         * @description Applies each transaction in order, each in its own database transaction. Stops at failures unless the backend BATCH_ON_FATAL_ERROR setting is skip and the failure is backend-directed.
          *     One transaction is the degenerate case, not a separate endpoint: a client uploading a single transaction sends a transactions array of length one.
          *     Results holds one entry per transaction sent, in the same order and always the same length as the request. Entries are matched to transactions positionally.
          */
@@ -67,20 +67,6 @@ export interface components {
         TransactionBatch: {
             /** @description Whole transactions to apply, in upload-queue order. A transaction is never split across batches. */
             transactions: components["schemas"]["CrudTransaction"][];
-            /**
-             * @description What to do when a transaction fails fatally.
-             *     stop (default): the batch ends; every transaction after it is
-             *       reported as not_attempted.
-             *     skip: the failing transaction is dropped and the batch continues.
-             *       Its result still reports fatal_error with the error
-             *       classification, so the client can record that it discarded the
-             *       transaction.
-             *
-             *     Applies to backend-directed fatal failures only. Client-directed fatal failures and retryable failures always end the batch.
-             * @default stop
-             * @enum {string}
-             */
-            on_fatal_error: "stop" | "skip";
         };
         TransactionBatchResponse: {
             /** @description One result per transaction sent, in the same order. Always the same length as the transactions array in the request. */

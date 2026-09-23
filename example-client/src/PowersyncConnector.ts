@@ -196,7 +196,7 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
 
     let results: TransactionResult[];
     try {
-      ({ results } = await writeClient.processTransactionBatch(batch, batching.onFatalError));
+      ({ results } = await writeClient.processTransactionBatch(batch));
     } catch (error) {
       await this.onTransportError(error);
       return;

@@ -61,14 +61,6 @@ const MAX_TRANSACTIONS_PER_BATCH = 1;
 /** Upper bound on total CRUD operations per upload request, regardless of transaction count. */
 const MAX_OPERATIONS_PER_BATCH = 1000;
 
-/**
- * What the backend should do when a transaction in a batch fails fatally.
- * 'stop' (default): the batch ends, everything after the failure is reported not_attempted.
- * 'skip': a backend-directed failure is dropped and the batch continues.
- * Client-directed failures always stop the batch and await an explicit client decision.
- */
-const ON_FATAL_ERROR: OnFatalError = 'stop';
-
 /** Abort a write API request that takes longer than this many milliseconds. */
 const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -157,8 +149,7 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
   protected getBatchingConfig() {
     return {
       maxTransactions: MAX_TRANSACTIONS_PER_BATCH,
-      maxOperations: MAX_OPERATIONS_PER_BATCH,
-      onFatalError: ON_FATAL_ERROR
+      maxOperations: MAX_OPERATIONS_PER_BATCH
     };
   }
 
@@ -256,8 +247,7 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
     if (batch.length === 0) return;
 
     const body: TransactionBatchAPI = {
-      transactions: batch.map(toApiTransaction),
-      on_fatal_error: batching.onFatalError
+      transactions: batch.map(toApiTransaction)
     };
 
     let results: TransactionResult[];
@@ -299,11 +289,8 @@ interface CrudTransactionAPI {
   transaction_id?: number;
 }
 
-type OnFatalError = 'stop' | 'skip';
-
 interface TransactionBatchAPI {
   transactions: CrudTransactionAPI[];
-  on_fatal_error: OnFatalError;
 }
 
 /** `not_attempted` means the batch ended before this transaction was reached. */

@@ -27,7 +27,7 @@ const bootWith = (env: Record<string, string>): Promise<Boot> =>
     const child = spawn(tsx, ['index.ts'], {
       cwd: backendDir,
       // A port nothing else uses, so this cannot bind over a real backend someone is running.
-      env: { ...process.env, PORT: '6098', ...env }
+      env: { ...process.env, PORT: '6098', BATCH_ON_FATAL_ERROR: 'stop', ...env }
     });
 
     let output = '';
@@ -48,6 +48,22 @@ const bootWith = (env: Record<string, string>): Promise<Boot> =>
   });
 
 describe('refusing to start on bad configuration', () => {
+  it('rejects an invalid fatal-error policy before database initialization', async () => {
+    const { code, output, stillRunning } = await bootWith({
+      BATCH_ON_FATAL_ERROR: 'continue',
+      DATABASE_URI: '',
+      DATABASE_TYPE: 'postgres'
+    });
+    expect(stillRunning).toBe(false);
+    expect(code).not.toBe(0);
+    expect(output).toContain('BATCH_ON_FATAL_ERROR');
+    expect(output).toContain('stop');
+    expect(output).toContain('skip');
+    expect(output).toContain('.env');
+    expect(output).not.toContain('DATABASE_URI');
+    expect(output).not.toMatch(/^\s+at .+/m);
+  }, 40000);
+
   it('explains that no connection string is configured, and exits non-zero', async () => {
     const { code, output, stillRunning } = await bootWith({
       DATABASE_URI: '',

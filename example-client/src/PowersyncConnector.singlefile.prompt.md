@@ -29,7 +29,7 @@ Any time the split version's behavior, config surface, or wire contract changes:
 > 3. **Config via SHOUTY_CASE consts at the top of the file**, not env vars and not constructor
 >    options — a copy-pasted file can't assume a bundler exposes `import.meta.env`. Mirror the
 >    split version's current defaults exactly (as of writing: `MAX_TRANSACTIONS_PER_BATCH = 1`,
->    `MAX_OPERATIONS_PER_BATCH = 1000`, `ON_FATAL_ERROR = 'stop'`, `REQUEST_TIMEOUT_MS = 30_000`).
+>    `MAX_OPERATIONS_PER_BATCH = 1000`, `REQUEST_TIMEOUT_MS = 30_000`).
 >    If `DemoConnectorConfig.ts`'s defaults changed, update the consts to match — don't reintroduce
 >    the null-fallback/"unset means default" parsing logic; a const always has a value, so that
 >    branch has nothing to do.

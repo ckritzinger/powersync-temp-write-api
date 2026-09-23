@@ -1,3 +1,4 @@
+import config from '../../config.js';
 import { fatalErrorHandler, notifyDeadLetter, type FatalErrorContext } from '../fatal-error-handler.js';
 import express, { type Request, type Response } from 'express';
 import { getPersister } from '../persistance/persister.js';
@@ -61,7 +62,7 @@ const applyTransaction = async (
  * This is the only write endpoint. A client uploading a single transaction sends a batch of one —
  * there is no separate single-transaction path, on the wire or in here.
  *
- * Stops at the first failure, unless `on_fatal_error` is `skip`, in which case a fatally failed
+ * Stops at the first failure, unless `BATCH_ON_FATAL_ERROR` is `skip`, in which case a fatally failed
  * backend-directed transaction is dropped and the batch continues. Client-directed fatal
  * errors and retryable failures always end the batch.
  *
@@ -78,9 +79,8 @@ router.post(
     // Verified identity from the token
     console.log(`Write authenticated as ${req.auth?.sub}`);
 
-    // Defaulted here rather than relying on the validator injecting the schema default, so this
-    // handler reads correctly on its own.
-    const { transactions, on_fatal_error = 'stop' } = req.body;
+    const { transactions } = req.body;
+    const onFatalError = config.batchOnFatalError;
     const results: TransactionResult[] = [];
 
     for (const transaction of transactions) {
@@ -92,7 +92,7 @@ router.post(
       }
 
       // Skipping covers fatal failures only. A retryable failure ends the batch.
-      const skipping = result.status === 'fatal_error' && !result.requires_client_handling && on_fatal_error === 'skip';
+      const skipping = result.status === 'fatal_error' && !result.requires_client_handling && onFatalError === 'skip';
 
       if (!skipping) {
         break;

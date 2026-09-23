@@ -58,7 +58,6 @@ vars:
 | `VITE_POWERSYNC_URL` | Your PowerSync instance's sync endpoint |
 | `VITE_BATCH_MAX_TRANSACTIONS` | Transactions per upload request (default 1) |
 | `VITE_BATCH_MAX_OPERATIONS` | Operations per batch (default 1000) |
-| `VITE_BATCH_ON_FATAL_ERROR` | `stop` (default) or `skip` — see the [root README](../README.md#api-overview) |
 | `VITE_REQUEST_TIMEOUT_MS` | Abort a write API request after this long (default 30000) |
 
 See `.env.example` in this folder.

@@ -7,12 +7,15 @@ vi.mock('../example-client/src/library/powersync/OpenAPITransport', () => ({
 vi.mock('../example-client/src/library/powersync/DemoConnectorConfig', () => ({
   readDemoConfig: () => ({
     backendUrl: '',
-    batching: { maxTransactions: 3, maxOperations: 100, onFatalError: 'skip' }
+    batching: { maxTransactions: 3, maxOperations: 100 }
   }),
   USER_ID_STORAGE_KEY: 'user',
   DEFAULT_BATCHING_CONFIG: {}
 }));
 // Reference clients use their host application's dependencies and module resolution.
+const { WriteAPIClient } = await import(
+  new URL('../example-client/src/library/powersync/WriteAPIClient.ts', import.meta.url).href
+);
 const splitPath = '../example-client/src/PowersyncConnector.ts';
 const singlePath = '../example-client/src/PowersyncConnector.singlefile.ts';
 const { PowersyncConnector: Split } = await import(new URL(splitPath, import.meta.url).href);
@@ -35,18 +38,24 @@ for (const [name, Connector] of [
         crud: [{ id: String(id), table: 'items', op: 'PUT' }],
         complete: vi.fn(async () => {})
       }));
-      // Replace only transport/config seams; exercise the actual upload and result handling.
+      const post = vi.fn(async () => ({
+        results: results.map((r: any) => ({
+          ...r,
+          requires_client_handling: r.requiresClientHandling,
+          failed_operation: r.failedOperation
+        }))
+      }));
+      // Replace only transport/config seams; exercise serialization and result handling.
       Object.assign(connector, {
-        getBatchingConfig: () => ({ maxTransactions: 3, maxOperations: 100, onFatalError: 'skip' }),
+        getBatchingConfig: () => ({ maxTransactions: 3, maxOperations: 100 }),
         onFatalTransaction: hook,
-        getWriteClient: async () => ({ processTransactionBatch: async () => ({ results }) }),
-        postTransactionBatch: async () => ({
-          results: results.map((r: any) => ({
-            ...r,
-            requires_client_handling: r.requiresClientHandling,
-            failed_operation: r.failedOperation
-          }))
-        })
+        getWriteClient: async () =>
+          new WriteAPIClient({
+            transport: { postTransactionBatch: post },
+            userId: 'user',
+            clientId: 'client'
+          }),
+        postTransactionBatch: post
       });
       const database = {
         getClientId: async () => 'client',
@@ -60,7 +69,7 @@ for (const [name, Connector] of [
       } catch (e) {
         error = e;
       }
-      return { batch, hook, error };
+      return { batch, hook, error, post };
     }
     const success = { status: 'success' };
     const fatal = {
@@ -69,6 +78,14 @@ for (const [name, Connector] of [
       failedOperation: { error_code: 'CUSTOM', details: { record_id: '2' } }
     };
     const suffix = { status: 'not_attempted' };
+
+    it('sends transactions without a fatal-error policy', async () => {
+      const { batch, error, post } = await upload([success, success, success]);
+      expect(error).toBeUndefined();
+      expect(post).toHaveBeenCalledExactlyOnceWith({
+        transactions: batch.map(({ crud }) => ({ crud }))
+      });
+    });
 
     it.each(['retain', 'invalid', new Error('callback failed')])(
       'retains with decision %s and completes earlier success',

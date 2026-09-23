@@ -57,10 +57,17 @@ Fatal results require `requires_client_handling` at transaction-result level and
 | Result | Backend batch | Client queue |
 | --- | --- | --- |
 | Success | Continue | Complete |
-| Fatal, flag false | Honor `stop` / `skip` | Complete |
+| Fatal, flag false | Honor backend `BATCH_ON_FATAL_ERROR` | Complete |
 | Fatal, flag true | Always stop, even with `skip` | Await explicit client decision |
 | Retryable | Stop | Retain and retry |
 | Not attempted | No execution | Retain |
+
+Configure `BATCH_ON_FATAL_ERROR=stop` (default) or `skip` on the backend. This setting
+applies only to backend-directed fatal failures; client-directed and retryable failures
+always stop the batch. Restart the backend after changing it (recreate the container when
+using Docker Compose). The client cannot override this policy. Older clients may still send
+`on_fatal_error`, but it is ignored. Deployments previously requesting `skip` from the client
+must now set `BATCH_ON_FATAL_ERROR=skip` on the backend.
 
 Both example connectors expose the same hook:
 

@@ -8,6 +8,7 @@ const PORT = process.env.PORT || config.port;
 // Resolving the persister is lazy so that importing the app needs no database. Do it here, before
 // listening, so a misconfigured database still fails at boot rather than on the first write.
 try {
+  void config.batchOnFatalError;
   await getPersister();
 } catch (error) {
   if (error instanceof ConfigurationError) {

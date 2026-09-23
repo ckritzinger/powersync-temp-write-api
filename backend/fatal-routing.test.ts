@@ -7,14 +7,20 @@ vi.mock('./src/persistance/persister.js', () => ({ getPersister: async () => ({ 
 vi.mock('./src/auth/authorizer.js', () => ({ authorizer: { authorize: mocks.authorize } }));
 vi.mock('./src/auth/verifier.js', () => ({ verifier: { verify: mocks.verify } }));
 import app from './app.js';
+import config from './config.js';
 import { fatalErrorHandler } from './src/fatal-error-handler.js';
 
 const transactions = [1, 2, 3].map((id) => ({
   transaction_id: id,
   crud: [{ op: 'PUT', table: 'items', id: String(id) }]
 }));
-const post = (mode: 'stop' | 'skip' = 'stop') =>
-  request(app).post('/api/data').set('Authorization', 'Bearer test').send({ transactions, on_fatal_error: mode });
+const post = (mode: 'stop' | 'skip' = 'stop', legacyMode?: 'stop' | 'skip') => {
+  vi.spyOn(config, 'batchOnFatalError', 'get').mockReturnValue(mode);
+  return request(app)
+    .post('/api/data')
+    .set('Authorization', 'Bearer test')
+    .send({ transactions, ...(legacyMode === undefined ? {} : { on_fatal_error: legacyMode }) });
+};
 const fatal = () => new FatalOperationError('USER_CONFIRMATION_REQUIRED', 'Confirm', { record_id: '2' }, 0);
 
 beforeEach(() => {
@@ -26,6 +32,19 @@ beforeEach(() => {
 });
 
 describe('fatal routing over HTTP', () => {
+  it.each(['stop', 'skip'] as const)('ignores a conflicting legacy policy when the backend uses %s', async (mode) => {
+    vi.spyOn(fatalErrorHandler, 'onDeadLetter').mockImplementation(() => {});
+    mocks.updateBatch.mockResolvedValueOnce(undefined).mockRejectedValueOnce(fatal());
+    const res = await post(mode, mode === 'stop' ? 'skip' : 'stop');
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.results.map((r: { status: string }) => r.status)).toEqual([
+      'success',
+      'fatal_error',
+      mode === 'skip' ? 'success' : 'not_attempted'
+    ]);
+    expect(mocks.updateBatch).toHaveBeenCalledTimes(mode === 'skip' ? 3 : 2);
+  });
+
   it.each(['stop', 'skip'] as const)('defaults to backend handling with %s', async (mode) => {
     const handler = vi.spyOn(fatalErrorHandler, 'onDeadLetter').mockImplementation(() => {});
     mocks.updateBatch.mockResolvedValueOnce(undefined).mockRejectedValueOnce(fatal());
@@ -49,11 +68,11 @@ describe('fatal routing over HTTP', () => {
     expect(handler.mock.calls[0][0].occurrenceId).toBeTruthy();
   });
 
-  it('stops client-directed errors even under skip', async () => {
+  it.each(['stop', 'skip'] as const)('stops client-directed errors under %s', async (mode) => {
     const classifier = vi.spyOn(fatalErrorHandler, 'requiresClientHandling').mockResolvedValue(true);
     const handler = vi.spyOn(fatalErrorHandler, 'onDeadLetter');
     mocks.updateBatch.mockResolvedValueOnce(undefined).mockRejectedValueOnce(fatal());
-    const res = await post('skip');
+    const res = await post(mode);
     expect(res.body.results.map((r: { status: string }) => r.status)).toEqual([
       'success',
       'fatal_error',
@@ -78,11 +97,11 @@ describe('fatal routing over HTTP', () => {
     expect(res.body.results.map((r: { status: string }) => r.status)).toEqual(['fatal_error', 'success', 'success']);
   });
 
-  it('retries and stops when classification fails', async () => {
+  it.each(['stop', 'skip'] as const)('retries and stops when classification fails under %s', async (mode) => {
     vi.spyOn(fatalErrorHandler, 'requiresClientHandling').mockRejectedValue(new Error('routing unavailable'));
     const handler = vi.spyOn(fatalErrorHandler, 'onDeadLetter');
     mocks.updateBatch.mockRejectedValueOnce(fatal());
-    const res = await post('skip');
+    const res = await post(mode);
     expect(res.body.results.map((r: { status: string }) => r.status)).toEqual([
       'retryable_error',
       'not_attempted',
@@ -91,20 +110,23 @@ describe('fatal routing over HTTP', () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
-  it('routes authorization rejection and preserves transient classification', async () => {
-    const handler = vi.spyOn(fatalErrorHandler, 'onDeadLetter').mockImplementation(() => {});
-    mocks.authorize.mockResolvedValueOnce(false);
-    const denied = await post();
-    expect(denied.body.results[0].failed_operation.error_code).toBe('UNAUTHORIZED');
-    expect(mocks.updateBatch).not.toHaveBeenCalled();
-    expect(handler).toHaveBeenCalledOnce();
-    mocks.updateBatch.mockRejectedValueOnce(new RetryableError('timeout'));
-    const retry = await post('skip');
-    expect(retry.body.results.map((r: { status: string }) => r.status)).toEqual([
-      'retryable_error',
-      'not_attempted',
-      'not_attempted'
-    ]);
-    expect(handler).toHaveBeenCalledOnce();
-  });
+  it.each(['stop', 'skip'] as const)(
+    'routes authorization rejection and preserves transient classification under %s',
+    async (mode) => {
+      const handler = vi.spyOn(fatalErrorHandler, 'onDeadLetter').mockImplementation(() => {});
+      mocks.authorize.mockResolvedValueOnce(false);
+      const denied = await post();
+      expect(denied.body.results[0].failed_operation.error_code).toBe('UNAUTHORIZED');
+      expect(mocks.updateBatch).not.toHaveBeenCalled();
+      expect(handler).toHaveBeenCalledOnce();
+      mocks.updateBatch.mockRejectedValueOnce(new RetryableError('timeout'));
+      const retry = await post(mode);
+      expect(retry.body.results.map((r: { status: string }) => r.status)).toEqual([
+        'retryable_error',
+        'not_attempted',
+        'not_attempted'
+      ]);
+      expect(handler).toHaveBeenCalledOnce();
+    }
+  );
 });

@@ -13,17 +13,8 @@ export interface CrudEntry_API {
   op_data?: Record<string, unknown>;
 }
 
-/** What the backend should do when a transaction in a batch fails fatally. */
-export type OnFatalError = 'stop' | 'skip';
-
 export interface TransactionBatch_API {
   transactions: CrudTransaction_API[];
-  /**
-   * Required here, though the contract marks it optional with a default of `stop`: openapi-typescript
-   * emits a property carrying a `default` as required. This client always sends it explicitly, so the
-   * stricter type costs nothing.
-   */
-  on_fatal_error: OnFatalError;
 }
 
 /** `not_attempted` means the batch ended before this transaction was reached. */
@@ -80,7 +71,7 @@ export interface WriteAPIClientOptions {
 }
 
 export interface IWriteAPIClient {
-  processTransactionBatch(transactions: CrudTransaction[], onFatalError: OnFatalError): Promise<TransactionBatchResult>;
+  processTransactionBatch(transactions: CrudTransaction[]): Promise<TransactionBatchResult>;
 }
 
 /** Shape one SDK transaction for the wire. */
@@ -122,13 +113,9 @@ export class WriteAPIClient implements IWriteAPIClient {
    * transaction, in the order given, and returns one result per transaction sent. Uploading a single
    * transaction is a batch of one — there is no separate path for it.
    */
-  async processTransactionBatch(
-    transactions: CrudTransaction[],
-    onFatalError: OnFatalError
-  ): Promise<TransactionBatchResult> {
+  async processTransactionBatch(transactions: CrudTransaction[]): Promise<TransactionBatchResult> {
     const body: TransactionBatch_API = {
-      transactions: transactions.map(toApiTransaction),
-      on_fatal_error: onFatalError
+      transactions: transactions.map(toApiTransaction)
     };
 
     const response = await this.options.transport.postTransactionBatch(body);
