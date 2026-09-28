@@ -1,3 +1,4 @@
+import { FatalOperationError } from '../../errors.js';
 import mysql from 'mysql2/promise';
 import type { Persister, CrudEntry } from '../../types.js';
 import { classifyMySQLError } from './mysql-errors.js';
@@ -23,60 +24,67 @@ export const createMySQLPersister = (uri: string, mapper: EntryMapper = defaultM
       try {
         await connection.beginTransaction();
 
-        for (const op of batch) {
-          const mapped = mapper(op);
-          if (mapped === null) continue;
+        for (const [operationIndex, op] of batch.entries()) {
+          try {
+            const mapped = mapper(op);
+            if (mapped === null) continue;
 
-          const table = escapeIdentifier(mapped.table);
+            const table = escapeIdentifier(mapped.table);
 
-          if (mapped.op === 'PUT') {
-            const with_id = { ...mapped.data, id: mapped.id };
+            if (mapped.op === 'PUT') {
+              const with_id = { ...mapped.data, id: mapped.id };
 
-            const columnsEscaped = Object.keys(with_id).map(escapeIdentifier);
-            const columnsJoined = columnsEscaped.join(', ');
+              const columnsEscaped = Object.keys(with_id).map(escapeIdentifier);
+              const columnsJoined = columnsEscaped.join(', ');
 
-            const updateClauses: string[] = [];
+              const updateClauses: string[] = [];
 
-            for (const key of Object.keys(mapped.data)) {
-              if (key === 'id') continue;
-              updateClauses.push(`${escapeIdentifier(key)} = VALUES(${escapeIdentifier(key)})`);
-            }
+              for (const key of Object.keys(mapped.data)) {
+                if (key === 'id') continue;
+                updateClauses.push(`${escapeIdentifier(key)} = VALUES(${escapeIdentifier(key)})`);
+              }
 
-            const updateClause = updateClauses.length > 0 ? `ON DUPLICATE KEY UPDATE ${updateClauses.join(', ')}` : ``;
+              const updateClause =
+                updateClauses.length > 0 ? `ON DUPLICATE KEY UPDATE ${updateClauses.join(', ')}` : ``;
 
-            const statement = `
+              const statement = `
               INSERT INTO ${table} (${columnsJoined})
               VALUES (${Object.keys(with_id)
                 .map(() => '?')
                 .join(', ')})
               ${updateClause}`;
 
-            await connection.execute(statement, Object.values(with_id));
-          } else if (mapped.op === 'PATCH') {
-            const updateClauses: string[] = [];
+              await connection.execute(statement, Object.values(with_id));
+            } else if (mapped.op === 'PATCH') {
+              const updateClauses: string[] = [];
 
-            for (const key of Object.keys(mapped.data)) {
-              if (key === 'id') continue;
-              updateClauses.push(`${escapeIdentifier(key)} = ?`);
-            }
+              for (const key of Object.keys(mapped.data)) {
+                if (key === 'id') continue;
+                updateClauses.push(`${escapeIdentifier(key)} = ?`);
+              }
 
-            if (updateClauses.length === 0) continue;
+              if (updateClauses.length === 0) continue;
 
-            const statement = `
+              const statement = `
               UPDATE ${table}
               SET ${updateClauses.join(', ')}
               WHERE id = ?`;
 
-            const values = [...Object.values(mapped.data), mapped.id];
-            await connection.execute(statement, values);
-          } else if (mapped.op === 'DELETE') {
-            const statement = `DELETE FROM ${table} WHERE id = ?`;
-            await connection.execute(statement, [mapped.id]);
+              const values = [...Object.values(mapped.data), mapped.id];
+              await connection.execute(statement, values);
+            } else if (mapped.op === 'DELETE') {
+              const statement = `DELETE FROM ${table} WHERE id = ?`;
+              await connection.execute(statement, [mapped.id]);
+            }
+          } catch (error) {
+            const classified = classifyMySQLError(error);
+            if (classified instanceof FatalOperationError) classified.operationIndex = operationIndex;
+            throw classified;
           }
         }
         await connection.commit();
       } catch (e) {
-        await connection.rollback();
+        await connection.rollback().catch(() => {});
         throw classifyMySQLError(e);
       } finally {
         connection.release();

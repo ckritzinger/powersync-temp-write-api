@@ -58,7 +58,6 @@ vars:
 | `VITE_POWERSYNC_URL` | Your PowerSync instance's sync endpoint |
 | `VITE_BATCH_MAX_TRANSACTIONS` | Transactions per upload request (default 1) |
 | `VITE_BATCH_MAX_OPERATIONS` | Operations per batch (default 1000) |
-| `VITE_BATCH_ON_FATAL_ERROR` | `stop` (default) or `skip` — see the [root README](../README.md#api-overview) |
 | `VITE_REQUEST_TIMEOUT_MS` | Abort a write API request after this long (default 30000) |
 
 See `.env.example` in this folder.
@@ -77,3 +76,7 @@ Once you have a real identity provider, replace `fetchCredentials()` with a mech
 a token from it — ideally the same token you use to authenticate against your own write API too.
 For further details of how to implement production quality authentication on various platforms,
 please see [`../docs/auth-verifiers.md`](../docs/auth-verifiers.md).
+
+See [error handling and developer-managed dead letters](../docs/error-handling.md) for the
+`onFatalTransaction` retain/complete hook, custom codes/details, queue blocking, and coordinated
+backend/connector deployment.

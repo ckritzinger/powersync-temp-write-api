@@ -140,7 +140,7 @@ TOKEN=<session access_token>
 curl -i -X POST http://localhost:6060/api/data \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $TOKEN" \
-  -d '{"transactions":[{"crud":[]}],"on_fatal_error":"stop"}'
+  -d '{"transactions":[{"crud":[]}]}'
 # expect 200 {"results":[{"status":"success"}]} and a backend log line:
 #   Write authenticated as <supabase user id>
 ```

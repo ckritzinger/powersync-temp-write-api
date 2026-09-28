@@ -32,9 +32,10 @@ This exists because there is no MongoDB-native equivalent of "table doesn't exis
 to fail against the way SQL does.
 
 A collection with no validator configured (including one that doesn't exist yet) is treated
-strictly rather than guessed at: `mongo-persistance.ts` dead-letters the raw entry via
-`backend/src/dlq.ts` and rejects the whole transaction as `fatal_error`/`SCHEMA_MISMATCH`, rather
-than writing it through unconverted or silently dropping it.
+strictly rather than guessed at: `mongo-persistance.ts` throws `SCHEMA_MISMATCH` with the
+original operation index and rolls back the whole transaction. The shared
+[`FatalErrorHandler`](error-handling.md) then routes the failure, defaulting to backend handling
+with the full transaction. No adapter persists dead letters itself.
 
 Add a `$jsonSchema` validator to a collection to have writes to it accepted and coerced again.
 
