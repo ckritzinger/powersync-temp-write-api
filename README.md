@@ -27,7 +27,7 @@ mutations to your source database. The `example-client` folder has a reference i
 ## Quickstart
 
 ```bash
-docker compose up --build   # Crash-loops until configuration below is done, it needs DATABASE_TYPE and DATABASE_URI to boot
+docker compose up --build   # Complete the database and auth configuration below first
 ```
 
 Brings up the write API at http://localhost:6060
@@ -63,11 +63,20 @@ For the API to be usable, you need to perform the following config:
    `DATABASE_TYPE` isn't one of the four above, or `BATCH_ON_FATAL_ERROR` is invalid — with a
    message naming the fix, not a stack trace.
 
-3. **Your client needs code to actually call this backend.** Nothing calls `/api/data` for you —
+3. **Supply the required auth configuration.** Follow the
+   [auth setup guide](backend/src/auth/SETUP.md) to export your PowerSync Cloud configuration to
+   `backend/powersync-config.json` and supply any required issuer/audience supplements. Compose
+   mounts the file read-only; set `POWERSYNC_CONFIG_PATH` to an absolute host path to use a
+   different export. For local execution, the default file is the same, and path overrides are
+   relative to the process working directory. The backend validates auth before listening and
+   reports missing or invalid configuration with setup instructions. See the guide for self-hosted
+   configuration. Restart after changing auth settings.
+
+4. **Your client needs code to actually call this backend.** Nothing calls `/api/data` for you —
    copy the pieces in `example-client/` into your app to perform writes. See
    `example-client/README.md` for detailed instructions.
 
-4. **Your client needs to reach this backend.** `localhost:6060` only works if the client runs on
+5. **Your client needs to reach this backend.** `localhost:6060` only works if the client runs on
    this same machine. Otherwise either bind the backend to `0.0.0.0` and put a client on the same
    network, or tunnel it (e.g. `ngrok http 6060`) and point the client at the public URL instead.
 

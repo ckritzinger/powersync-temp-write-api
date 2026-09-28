@@ -1,6 +1,6 @@
 # The write API, standalone. Assumes a hosted PowerSync instance and a database you already run —
-# this project owns neither. Set DATABASE_TYPE / DATABASE_URI in .env, and point your PowerSync
-# instance's JWKS URL at this backend's /api/auth/keys.
+# this project owns neither. Set DATABASE_TYPE / DATABASE_URI in .env and export the instance's
+# auth config as described in backend/src/auth/SETUP.md.
 
 services:
   backend:
@@ -20,6 +20,14 @@ services:
       BATCH_ON_FATAL_ERROR: ${BATCH_ON_FATAL_ERROR-stop}
       DATABASE_TYPE: ${DATABASE_TYPE:-postgres}
       DATABASE_URI: ${DATABASE_URI:-}
+      POWERSYNC_CONFIG_PATH: /run/secrets/powersync-config.json
+    volumes:
+      - type: bind
+        source: ${POWERSYNC_CONFIG_PATH:-./backend/powersync-config.json}
+        target: /run/secrets/powersync-config.json
+        read_only: true
+        bind:
+          create_host_path: false
     ports:
       - "6060:6060"
     healthcheck:

@@ -38,6 +38,37 @@ Two things about that file:
 Re-export whenever you change auth settings in the dashboard. The dump is a snapshot; a verifier
 built from a stale one may not match what the instance currently accepts.
 
+### Supplying the file at startup
+
+For local execution, save the export as `backend/powersync-config.json`. That default is resolved
+relative to the verifier module, regardless of where you start the process. Alternatively set
+`POWERSYNC_CONFIG_PATH` in the process environment or the `.env` loaded from your working directory:
+
+```sh
+cd backend
+POWERSYNC_CONFIG_PATH=/absolute/path/to/powersync-config.json pnpm start
+```
+
+A relative override is resolved from the process working directory. Generic providers may also
+need trusted `issuer` and `instanceUrl` or `audience` supplements in `src/auth/verifier.ts`; follow
+the resolver diagnostics and the table in that file.
+
+Docker Compose mounts `./backend/powersync-config.json` read-only at
+`/run/secrets/powersync-config.json` and sets the container's `POWERSYNC_CONFIG_PATH` accordingly.
+To use another host file, set `POWERSYNC_CONFIG_PATH` to its absolute host path in the root `.env`
+or shell before running `docker compose up --build`. The source file must exist; Compose will
+reject a missing bind source instead of creating a directory. The development overlay uses the
+same mount. Config exports are excluded from the image and Git.
+
+Startup initializes auth before listening. Unreadable files, invalid JSON, or unsupported auth
+settings stop the backend with `Cannot start.` and setup instructions, without printing config
+contents or a stack trace. Auth is required; there is no fallback to demo tokens. Configuration
+and verification keys are initialized once per process, so restart after changing the export or
+supplements. Remote JWKS keys still refresh according to the verifier's cache policy.
+
+Tests use synthetic auth configuration and local signing keys. They do not require your export
+or a live identity provider.
+
 ## 2. Self-hosted instead of Cloud
 
 Self-hosted deployments have no management API, so `powersync fetch config` does not apply. Parse

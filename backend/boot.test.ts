@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawn } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -13,25 +15,46 @@ import path from 'node:path';
  */
 
 const backendDir = path.dirname(fileURLToPath(import.meta.url));
-const tsx = path.join(backendDir, 'node_modules', '.bin', 'tsx');
+const authFixture = path.join(backendDir, 'test-fixtures', 'auth-config.json');
+let fixturesDir: string;
+
+beforeAll(async () => {
+  fixturesDir = await mkdtemp(path.join(tmpdir(), 'powersync-boot-'));
+  await writeFile(path.join(fixturesDir, 'malformed.json'), '{"secret": "do-not-print-this",');
+  await writeFile(path.join(fixturesDir, 'invalid.json'), '{}');
+  await writeFile(path.join(fixturesDir, 'unsupported.json'), JSON.stringify({
+    config: { client_auth: { supabase_jwt_secret: 'do-not-print-this' } }
+  }));
+});
+
+afterAll(async () => {
+  await rm(fixturesDir, { recursive: true, force: true });
+});
 
 interface Boot {
   code: number | null;
   output: string;
-  /** True if it was still running when we gave up — a refusal to start should never be. */
+  /** True if it started listening or was still running when we gave up. */
   stillRunning: boolean;
 }
 
 const bootWith = (env: Record<string, string>): Promise<Boot> =>
   new Promise((resolve) => {
-    const child = spawn(tsx, ['index.ts'], {
+    const child = spawn(process.execPath, ['--import', 'tsx', 'index.ts'], {
       cwd: backendDir,
-      // A port nothing else uses, so this cannot bind over a real backend someone is running.
-      env: { ...process.env, PORT: '6098', BATCH_ON_FATAL_ERROR: 'stop', ...env }
+      // An ephemeral port cannot collide with a real backend. Auth never uses developer config.
+      env: { ...process.env, PORT: '0', BATCH_ON_FATAL_ERROR: 'stop', POWERSYNC_CONFIG_PATH: authFixture, ...env }
     });
 
     let output = '';
-    child.stdout.on('data', (d) => (output += d));
+    let started = false;
+    child.stdout.on('data', (d) => {
+      output += d;
+      if (output.includes('Server is running')) {
+        started = true;
+        child.kill('SIGTERM');
+      }
+    });
     child.stderr.on('data', (d) => (output += d));
 
     // Without this, a regression that DOES start the server leaves the promise pending until the
@@ -43,11 +66,42 @@ const bootWith = (env: Record<string, string>): Promise<Boot> =>
 
     child.on('close', (code) => {
       clearTimeout(deadline);
-      resolve({ code, output, stillRunning: false });
+      resolve({ code, output, stillRunning: started });
     });
   });
 
 describe('refusing to start on bad configuration', () => {
+  it.each([
+    ['missing.json', 'Cannot read'],
+    ['malformed.json', 'Invalid JSON'],
+    ['invalid.json', 'config:'],
+    ['unsupported.json', 'config.client_auth.supabase_jwt_secret:']
+  ])('reports auth configuration errors for %s before listening', async (file, diagnostic) => {
+    const { code, output, stillRunning } = await bootWith({
+      DATABASE_URI: 'postgres://u:p@127.0.0.1:5432/test',
+      DATABASE_TYPE: 'postgres',
+      POWERSYNC_CONFIG_PATH: path.join(fixturesDir, file)
+    });
+    expect(stillRunning).toBe(false);
+    expect(code).toBe(1);
+    expect(output).toContain('Cannot start.');
+    expect(output).toContain(diagnostic);
+    expect(output).toContain('POWERSYNC_CONFIG_PATH');
+    expect(output).toContain('SETUP.md');
+    expect(output).not.toContain('do-not-print-this');
+    expect(output).not.toMatch(/^\s+at .+/m);
+  });
+
+  it('starts with the test auth configuration without fetching remote keys', async () => {
+    const { output, stillRunning } = await bootWith({
+      DATABASE_URI: 'postgres://u:p@127.0.0.1:5432/test',
+      DATABASE_TYPE: 'postgres'
+    });
+    expect(stillRunning).toBe(true);
+    expect(output).toContain('Server is running');
+    expect(output).not.toContain('Cannot start.');
+  });
+
   it('rejects an invalid fatal-error policy before database initialization', async () => {
     const { code, output, stillRunning } = await bootWith({
       BATCH_ON_FATAL_ERROR: 'continue',

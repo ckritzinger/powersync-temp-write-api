@@ -1,5 +1,5 @@
 import express, { type Request, type Response } from 'express';
-import { SignJWT, importJWK, type JWK, type KeyLike } from 'jose';
+import { SignJWT, importJWK, type JWK } from 'jose';
 import config from '../../config.js';
 import { generateKeyPair } from '../utils/generate-key.js';
 const router = express.Router();
@@ -14,7 +14,7 @@ interface JwksResponse {
 }
 
 interface ImportedKeys {
-  privateKey: { alg: string; kid: string; key: KeyLike } | null;
+  privateKey: { alg: string; kid: string; key: Awaited<ReturnType<typeof importJWK>> } | null;
   publicKey: JWK | null;
 }
 
@@ -50,7 +50,7 @@ async function ensureKeys(): Promise<void> {
   keys.privateKey = {
     alg: powerSyncPrivateKey.alg,
     kid: powerSyncPrivateKey.kid,
-    key: (await importJWK(powerSyncPrivateKey)) as KeyLike
+    key: await importJWK(powerSyncPrivateKey)
   };
 
   const decodedPublicKey = Buffer.from(base64Keys.public!, 'base64');
