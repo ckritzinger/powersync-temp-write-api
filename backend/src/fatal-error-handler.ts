@@ -3,22 +3,6 @@ import type { AuthContext } from './auth/types.js';
 import type { components } from './generated/api.js';
 import type { FatalOperationError, JsonValue } from './errors.js';
 
-export interface FatalErrorContext {
-  transaction: components['schemas']['CrudTransaction'];
-  auth: AuthContext;
-}
-
-export interface DeadLetterEntry {
-  occurrenceId: string;
-  timestamp: string;
-  transaction: FatalErrorContext['transaction'];
-  authenticatedSubject: string;
-  errorCode: string;
-  message: string;
-  details?: JsonValue;
-  operationIndex?: number;
-}
-
 export interface FatalErrorHandler {
   requiresClientHandling(error: FatalOperationError, context: FatalErrorContext): boolean | Promise<boolean>;
   onDeadLetter(entry: DeadLetterEntry): void | Promise<void>;
@@ -34,6 +18,22 @@ export const fatalErrorHandler: FatalErrorHandler = {
     );
   }
 };
+
+export interface FatalErrorContext {
+  transaction: components['schemas']['CrudTransaction'];
+  auth: AuthContext;
+}
+
+export interface DeadLetterEntry {
+  occurrenceId: string;
+  timestamp: string;
+  transaction: FatalErrorContext['transaction'];
+  authenticatedSubject: string;
+  errorCode: string;
+  message: string;
+  details?: JsonValue;
+  operationIndex?: number;
+}
 
 /** Best effort: neither synchronous throws nor rejected/unresolved promises affect the response. */
 export function notifyDeadLetter(error: FatalOperationError, context: FatalErrorContext): void {

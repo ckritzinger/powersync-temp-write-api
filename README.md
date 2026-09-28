@@ -167,6 +167,10 @@ shadows the container port.
   [docs/authorization.md](./docs/authorization.md).
 - `backend/src/mapping/` how a `CrudEntry` becomes a database write. The default is a naive 1:1
   field pass-through. See [docs/schema-mapping.md](./docs/schema-mapping.md).
+- `backend/src/fatal-error-handler.ts` customize `requiresClientHandling` to route fatal errors
+  to the client and `onDeadLetter` to send backend-directed failures to your own storage or
+  notifications. By default, all fatal errors are handled by the backend and logged. See
+  [docs/error-handling.md](./docs/error-handling.md).
 
 ## Tests
 

@@ -8,11 +8,16 @@ Authorization and all four database adapters use this shared routing after rollb
 ```ts
 export const fatalErrorHandler: FatalErrorHandler = {
   requiresClientHandling(error, context) {
-    // context.transaction is the original uploaded transaction; context.auth is verified.
+    // Choose which rejected writes need a client decision, such as asking the user
+    // to confirm a change or correct invalid input. Return true to keep the write
+    // queued for client handling; return false to route it to onDeadLetter.
     return error.errorCode === 'USER_CONFIRMATION_REQUIRED';
   },
   async onDeadLetter(entry) {
-    // Replace with your storage or notification integration.
+    // Called for rejected transactions when requiresClientHandling returns false.
+    // Store the entry for investigation or notify your support team, for example.
+    // Replace this insert with your own integration; delivery is best effort
+    // and does not block the response (see delivery guarantees below).
     await developerOwnedStorage.insert(entry);
   }
 };
@@ -103,6 +108,3 @@ and then submit the replacement. Account for crashes between release and replace
 your application if that intent must survive them. The application owns UI, notification
 deduplication, and decisions about release or replacement; returning `'complete'` is an
 explicit acknowledgment of data loss for the rejected write.
-
-Deploy the backend and updated connectors together. Older connectors that discard every
-fatal error are incompatible with client-directed failures.
