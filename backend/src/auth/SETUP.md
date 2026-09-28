@@ -77,4 +77,6 @@ dump: rotating them means re-exporting and restarting.
 - One issuer and one audience policy per verifier. Multiple issuers, or separate Clerk session
   tokens with an `azp` policy, need an adapter that does not exist yet.
 - Authentication only. Deciding whether this `sub` may perform this write is still your backend's
-  job — and don't use user-editable profile claims to make that decision.
+  job. Base authorization on server-controlled permissions. A valid signature proves the issuer
+  issued the claims, but some claims may contain profile data the user can edit before a token is
+  issued (such as Supabase's `user_metadata`). Do not use those claims to grant permissions.
