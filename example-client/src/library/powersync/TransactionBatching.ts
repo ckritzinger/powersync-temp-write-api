@@ -1,25 +1,60 @@
-import type { TransactionResult } from './WriteAPIClient';
+import type { TransactionResult, ClientHandledFatalResult } from './WriteAPIClient';
 
 export const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-/**
- * The completion boundary: the index of the last transaction the client may complete through, or
- * `-1` if it may complete nothing.
- *
- * `success` is completable, and so is `fatal_error`: the transaction is being discarded, either
- * because the backend skipped it or because this connector discards unrecoverable writes rather than
- * blocking the queue forever. `retryable_error` and `not_attempted` are **not** completable, those
- * transactions were not applied and must stay in the queue for the next attempt.
- */
-export const completionBoundary = (results: Pick<TransactionResult, 'status'>[]): number => {
+/** Complete only the contiguous accepted prefix, even when a callback throws. */
+export async function completeAcceptedPrefix(
+  batch: { complete(): Promise<void> }[],
+  results: TransactionResult[],
+  onFatal: (index: number, result: ClientHandledFatalResult) => Promise<'retain' | 'complete'>,
+  onRetryable: (result: Extract<TransactionResult, { status: 'retryable_error' }>) => Promise<never>
+): Promise<void> {
+  if (!Array.isArray(results) || results.length !== batch.length) throw new Error('Invalid batch result count');
   let boundary = -1;
-
-  for (const [index, result] of results.entries()) {
-    if (result.status !== 'success' && result.status !== 'fatal_error') {
-      break;
+  try {
+    for (const [index, result] of results.entries()) {
+      if (result?.status === 'success') {
+        boundary = index;
+        continue;
+      }
+      if (result?.status === 'fatal_error') {
+        if (
+          typeof result.requiresClientHandling !== 'boolean' ||
+          !result.failedOperation ||
+          typeof result.failedOperation.error_code !== 'string' ||
+          (result.failedOperation.message !== undefined && typeof result.failedOperation.message !== 'string') ||
+          (result.failedOperation.operation_index !== undefined &&
+            (!Number.isInteger(result.failedOperation.operation_index) || result.failedOperation.operation_index < 0))
+        ) {
+          throw new Error('Malformed fatal transaction result');
+        }
+        if (result.requiresClientHandling) {
+          const decision = await onFatal(index, {
+            ...result,
+            requiresClientHandling: true
+          });
+          if (decision !== 'complete') throw new Error('Fatal transaction retained for client handling');
+          boundary = index;
+          // Client-directed failures always end the backend batch. Never complete a later result.
+          return;
+        }
+        boundary = index;
+        continue;
+      }
+      if (result?.status === 'retryable_error') {
+        // Complete the accepted prefix before invoking backoff/retry hooks.
+        if (boundary >= 0) {
+          const accepted = boundary;
+          boundary = -1;
+          await batch[accepted].complete();
+        }
+        await onRetryable(result);
+        throw new Error('Retryable transaction retained');
+      }
+      if (result?.status === 'not_attempted') return;
+      throw new Error('Malformed transaction result');
     }
-    boundary = index;
+  } finally {
+    if (boundary >= 0) await batch[boundary].complete();
   }
-
-  return boundary;
-};
+}

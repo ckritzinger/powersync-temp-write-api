@@ -6,6 +6,7 @@ const MONGO_CODES: Record<number, ErrorCode> = {
 };
 
 export const classifyMongoError = (error: unknown): Error => {
+  if (error instanceof FatalOperationError || error instanceof RetryableError) return error;
   const mongoError = error as { code?: number; hasErrorLabel?: (label: string) => boolean } | null | undefined;
   const message = messageOf(error);
 

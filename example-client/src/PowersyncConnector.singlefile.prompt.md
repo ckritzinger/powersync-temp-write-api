@@ -29,7 +29,7 @@ Any time the split version's behavior, config surface, or wire contract changes:
 > 3. **Config via SHOUTY_CASE consts at the top of the file**, not env vars and not constructor
 >    options — a copy-pasted file can't assume a bundler exposes `import.meta.env`. Mirror the
 >    split version's current defaults exactly (as of writing: `MAX_TRANSACTIONS_PER_BATCH = 1`,
->    `MAX_OPERATIONS_PER_BATCH = 1000`, `ON_FATAL_ERROR = 'stop'`, `REQUEST_TIMEOUT_MS = 30_000`).
+>    `MAX_OPERATIONS_PER_BATCH = 1000`, `REQUEST_TIMEOUT_MS = 30_000`).
 >    If `DemoConnectorConfig.ts`'s defaults changed, update the consts to match — don't reintroduce
 >    the null-fallback/"unset means default" parsing logic; a const always has a value, so that
 >    branch has nothing to do.
@@ -38,7 +38,7 @@ Any time the split version's behavior, config surface, or wire contract changes:
 >    for `crypto.randomUUID()` to exist at all.
 > 5. **Hand-written literal types, not generated ones.** Re-derive the wire shapes
 >    (`CrudEntryAPI`, `CrudTransactionAPI`, `TransactionBatchAPI`, `TransactionResponseAPI`,
->    `TransactionBatchResponseAPI`, the `ErrorCode` union, etc.) from the current
+>    `TransactionBatchResponseAPI`, the extensible `ErrorCode` union, etc.) from the current
 >    `backend/openapi.yaml`, as literal unions/interfaces — not `string`/`any`. This file has no
 >    codegen step, but "no codegen" doesn't mean "no type safety": keep it as precise as hand-typing
 >    allows.
@@ -87,3 +87,13 @@ Any time the split version's behavior, config surface, or wire contract changes:
 - **The "no external libraries" constraint includes `uuid`, not just `openapi-fetch`.** It's easy
   to swap out the OpenAPI client and miss that `uuid` is also a dependency the split version pulls
   in via `PowersyncConnector.ts`'s constructor.
+
+## Fatal routing invariants
+
+Preserve the discriminated response union: fatal results require a boolean
+`requires_client_handling` and `failed_operation`; codes allow application strings and details
+are arbitrary JSON. Mirror runtime malformed-response guards and `completeAcceptedPrefix`.
+The hook accepts `ClientHandledFatalResult` and returns `Promise<'retain' | 'complete'>`.
+Invoke it only for client-directed failures, default to retain, complete the accepted prefix
+even on callback failure, and never complete beyond a retained or malformed result.
+Keep both variants covered by `backend/connector.test.ts`.

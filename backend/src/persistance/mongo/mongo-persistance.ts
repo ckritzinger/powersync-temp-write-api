@@ -4,7 +4,6 @@ import { classifyMongoError } from './mongo-errors.js';
 import type { EntryMapper } from '../../mapping/types.js';
 import { createMongoMapper } from '../../mapping/mongo.js';
 import { discoverSchema, type TableSchema } from './mongo-schema.js';
-import { deadLetterQueue } from '../../dlq.js';
 import { FatalOperationError, RetryableError } from '../../errors.js';
 import type { AuthContext } from '../../auth/types.js';
 
@@ -29,44 +28,43 @@ export const createMongoPersister = async (uri: string, mapper?: EntryMapper): P
       try {
         session.startTransaction();
 
-        for (const op of batch) {
-          // Strict mode: a table with no discovered $jsonSchema validator has no trustworthy
-          // shape to write against — dead-letter the raw entry instead of guessing at it, and
-          // reject the whole transaction rather than silently skipping just this op. See
-          // docs/schema-mapping.md.
-          if (schema && !schema[op.table]) {
-            await deadLetterQueue.push({
-              table: op.table,
-              op: op.op,
-              id: op.id,
-              reason: `No MongoDB $jsonSchema validator found for collection "${op.table}" at boot.`,
-              entry: op
-            });
-            throw new FatalOperationError(
-              'SCHEMA_MISMATCH',
-              `No MongoDB schema validator for collection "${op.table}" — entry dead-lettered, transaction rejected.`
-            );
-          }
+        for (const [operationIndex, op] of batch.entries()) {
+          try {
+            // Strict mode: a table with no discovered $jsonSchema validator has no trustworthy
+            // shape to write against — reject it for shared fatal-error routing, and
+            // reject the whole transaction rather than silently skipping just this op. See
+            // docs/schema-mapping.md.
+            if (schema && !schema[op.table]) {
+              throw new FatalOperationError(
+                'SCHEMA_MISMATCH',
+                `No MongoDB schema validator for collection "${op.table}" — transaction rejected.`
+              );
+            }
 
-          const mapped = resolvedMapper(op);
-          if (mapped === null) continue;
+            const mapped = resolvedMapper(op);
+            if (mapped === null) continue;
 
-          const collection = db.collection(mapped.table);
+            const collection = db.collection(mapped.table);
 
-          if (mapped.op == 'PUT') {
-            const doc: Record<string, unknown> = { _id: mapped.id, ...mapped.data };
-            await collection.replaceOne({ _id: mapped.id as unknown as mongo.ObjectId }, doc, {
-              upsert: true,
-              session
-            });
-          } else if (mapped.op == 'PATCH') {
-            await collection.updateOne(
-              { _id: mapped.id as unknown as mongo.ObjectId },
-              { $set: mapped.data },
-              { session }
-            );
-          } else if (mapped.op == 'DELETE') {
-            await collection.deleteOne({ _id: mapped.id as unknown as mongo.ObjectId }, { session });
+            if (mapped.op == 'PUT') {
+              const doc: Record<string, unknown> = { _id: mapped.id, ...mapped.data };
+              await collection.replaceOne({ _id: mapped.id as unknown as mongo.ObjectId }, doc, {
+                upsert: true,
+                session
+              });
+            } else if (mapped.op == 'PATCH') {
+              await collection.updateOne(
+                { _id: mapped.id as unknown as mongo.ObjectId },
+                { $set: mapped.data },
+                { session }
+              );
+            } else if (mapped.op == 'DELETE') {
+              await collection.deleteOne({ _id: mapped.id as unknown as mongo.ObjectId }, { session });
+            }
+          } catch (error) {
+            const classified = classifyMongoError(error);
+            if (classified instanceof FatalOperationError) classified.operationIndex = operationIndex;
+            throw classified;
           }
         }
 

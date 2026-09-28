@@ -25,13 +25,18 @@ export type ErrorCode =
   | 'SCHEMA_MISMATCH'
   | 'DOCUMENT_VALIDATION_FAILURE'
   | 'UNAUTHORIZED'
-  | 'UNCLASSIFIED_ERROR';
+  | 'UNCLASSIFIED_ERROR'
+  | (string & {});
 
-/** Non-recoverable failure (constraint violation, schema mismatch). Client should NOT retry. */
+export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+
+/** Permanent rejection; the shared handler decides who must handle it. */
 export class FatalOperationError extends Error {
   constructor(
     public readonly errorCode: ErrorCode,
-    message: string
+    message: string,
+    public readonly details?: JsonValue,
+    public operationIndex?: number
   ) {
     super(message);
   }
