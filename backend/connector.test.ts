@@ -45,7 +45,7 @@ for (const [name, Connector] of [
           failed_operation: r.failedOperation
         }))
       }));
-      // Replace only transport/config seams; exercise serialization and result handling.
+      // Mock transport and configuration while exercising serialization and result handling.
       Object.assign(connector, {
         getBatchingConfig: () => ({ maxTransactions: 3, maxOperations: 100 }),
         onFatalTransaction: hook,

@@ -17,8 +17,8 @@ export const createMySQLPersister = (uri: string, mapper: EntryMapper = defaultM
   const pool = mysql.createPool(uri);
 
   const persister: Persister = {
-    // No native row-level security equivalent for MySQL — auth is unused here. Real per-row
-    // authorization means writing it yourself, either in authorize() or in this transaction.
+    // This adapter does not use auth yet. Add application permission checks in authorize(),
+    // or check existing rows within this database transaction.
     updateBatch: async (batch: CrudEntry[], _auth: AuthContext) => {
       const connection = await pool.getConnection();
       try {

@@ -16,8 +16,8 @@ export interface paths {
         /**
          * Apply one or more transactions, each in its own database transaction
          * @description Applies each transaction in order, each in its own database transaction. Stops at failures unless the backend BATCH_ON_FATAL_ERROR setting is skip and the failure is backend-directed.
-         *     One transaction is the degenerate case, not a separate endpoint: a client uploading a single transaction sends a transactions array of length one.
-         *     Results holds one entry per transaction sent, in the same order and always the same length as the request. Entries are matched to transactions positionally.
+         *     To upload one transaction, send a transactions array containing one entry.
+         *     The results array contains one entry per transaction, in request order.
          */
         post: operations["postTransactionBatch"];
         delete?: never;
@@ -142,7 +142,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Result. Always returns 200 — outcomes are carried by the per-transaction status values in results. */
+            /** @description The batch was processed. Check each transaction status in results for its outcome, including failures and transactions not attempted. */
             200: {
                 headers: {
                     [name: string]: unknown;

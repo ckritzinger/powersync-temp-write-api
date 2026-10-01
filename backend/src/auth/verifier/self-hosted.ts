@@ -47,7 +47,7 @@ export function resolveSelfHostedAuth(config: unknown, supplements: AuthSuppleme
   if (auth.supabase_jwt_secret !== undefined) diagnostics.issue('unsupported', 'client_auth.supabase_jwt_secret', 'Legacy shared-secret configuration is unsupported; configure asymmetric signing keys.');
   if (supplements.provider === 'supabase' || nonempty(supplements.supabaseUrl)) diagnostics.issue('unsupported', 'provider', 'Supabase supplements apply to Cloud imports; a self-hosted deployment configures its Supabase JWKS endpoint explicitly.');
 
-  // Cloud spells this additional_audiences; seeing it here means the wrong importer.
+  // additional_audiences is supported only by the Cloud importer.
   if (auth.additional_audiences !== undefined) diagnostics.issue('unsupported', 'client_auth.additional_audiences', 'This is a Cloud field; a self-hosted configuration lists its complete audience under client_auth.audience.');
   if (auth.allow_temporary_tokens !== undefined) diagnostics.issue('unsupported', 'client_auth.allow_temporary_tokens', 'This is a Cloud field and has no self-hosted equivalent.');
   if (nonempty(supplements.instanceUrl)) diagnostics.issue('invalid', 'instanceUrl', 'Self-hosted client_auth.audience is already the complete audience policy; there is no implicit instance-domain audience to add.');
@@ -74,15 +74,15 @@ export function resolveSelfHostedAuth(config: unknown, supplements: AuthSuppleme
   if (override) diagnostics.note('JWKS_URI_OVERRIDDEN', 'jwksUriOverride', `The configured key endpoint was replaced by ${override.length} explicitly supplied URI(s); the issuer and audience policy is unchanged.`);
   const uris = override ?? uriList(auth.jwks_uri) ?? [];
   const sources: KeySource[] = remoteSources([...new Set(uris)], trust.trust, diagnostics, override ? 'jwksUriOverride' : 'client_auth.jwks_uri');
-  // An override replaces network endpoints only; inline keys carry no network vantage point.
+  // Endpoint overrides leave inline keys unchanged.
   if (auth.jwks !== undefined) {
     const inline = inlineSource(auth.jwks, diagnostics, 'client_auth.jwks');
     if (inline) sources.push(inline);
   }
   if (!sources.length) diagnostics.issue('missing', 'client_auth.jwks_uri', 'No supported verification keys found; configure a JWKS URI or asymmetric public keys.');
 
-  // PowerSync's own SSRF guard. If it blocks local key endpoints, a loopback opt-in here means the
-  // two are looking at different networks — usually a sign the override is the wrong way round.
+  // Warn when this verifier allows HTTP hosts but the service blocks local JWKS addresses.
+  // The operator should confirm that both use the intended key endpoint.
   if (auth.block_local_jwks === true && (trust.allowLocalHttp || trust.insecureHttpHosts.length)) {
     diagnostics.note('LOCAL_JWKS_BLOCKED_BY_SERVICE', 'client_auth.block_local_jwks',
       'The service blocks local JWKS addresses while this verifier trusts plain HTTP hosts; confirm both are reading the same key endpoint.');

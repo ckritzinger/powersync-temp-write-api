@@ -1,7 +1,6 @@
 import { v4 as uuid } from 'uuid';
 
-// Requires @powersync/web (or @powersync/react-native) >=1.26.0 — that's the version
-// getCrudTransactions() was added in, and uploadTransactionBatch() below depends on it.
+// Requires @powersync/web or @powersync/react-native >=1.26.0 for getCrudTransactions().
 import type { AbstractPowerSyncDatabase, CrudTransaction, PowerSyncBackendConnector } from '@powersync/web';
 import {
   WriteAPIClient,
@@ -19,47 +18,22 @@ import {
 import { completeAcceptedPrefix, sleep } from './library/powersync/TransactionBatching';
 
 export class PowersyncConnector implements PowerSyncBackendConnector {
-  // ===========================================================================================
-  // START HERE: uploadData and fetchCredentials are what connect PowerSync to your backend.
-  // Both ship with a demo default that already works end-to-end for local development — see
-  // each method's own comment for exactly what that means and what to change for production.
-  //
-  // See the client-side integration guide:
-  // https://docs.powersync.com/configuration/app-backend/client-side-integration#backend-connector
-  //
-  // Everything below this block is a reference implementation, already working — you don't need
-  // to touch it, but you can override any of it if you want different behaviour.
-
-  // Called by PowerSync whenever it has local changes to send to your backend.
-  // The implementation below already works with this repo's Write API backend.
-  // No changes are needed to get started.
+  // Called by PowerSync to upload queued local changes to the write API.
   async uploadData(database: AbstractPowerSyncDatabase): Promise<void> {
     const batching = this.getBatchingConfig();
     return this.uploadTransactionBatch(database, batching);
   }
 
-  // Returns the credentials PowerSync uses for the SYNC (read) connection — a different thing
-  // from the write API auth above uploadData uses, even though the demo default below happens to
-  // fetch from the same place.
-  //
-  // THIS DEFAULT WILL NOT WORK OUT OF THE BOX. It mints a token from this backend's own demo
-  // /api/auth/token endpoint, which is a validly-shaped PowerSync JWT — but your PowerSync
-  // instance only trusts it once its custom-auth (JWKS) setting is pointed at this backend's
-  // GET /api/auth/keys. Until you do that, PowerSync rejects every token this returns and sync
-  // never connects, even though uploadData() above keeps working fine (it talks to this backend
-  // directly, not to PowerSync). See the root README's Configuration section for that step.
-  //
-  // You've likely already implemented a real version of this while connecting your front-end to
-  // PowerSync. Replace the body below with that once you have a real identity provider — see
-  // https://docs.powersync.com/configuration/auth/development-tokens in the meantime.
+  // Returns credentials for the PowerSync sync connection, reusing the write API token.
+  // The demo token requires PowerSync to trust this backend's GET /api/auth/keys endpoint.
+  // Configure the write API verifier to accept it too. For production, use your identity
+  // provider's token retrieval in getAuthToken(). See docs/auth-verifiers.md.
   async fetchCredentials() {
     return {
       endpoint: this.config.powersyncUrl,
       token: await this.getAuthToken()
     };
   }
-
-  // ===========================================================================================
 
   readonly config: DemoConfig;
   readonly userId: string;
@@ -101,9 +75,8 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
   }
 
   /**
-   * The bearer token for write API requests. Reuses whatever fetchCredentials last fetched for the
-   * sync connection; fetches its own if nothing has been cached yet (e.g. before the first
-   * connect), or after {@link onTransportError} invalidated a rejected token.
+   * Returns the cached token shared by sync and write requests.
+   * Fetches a token on first use or after {@link onTransportError} clears the cache.
    */
   private async getAuthToken(): Promise<string> {
     if (!this._authToken) {
@@ -145,10 +118,9 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
   }
 
   /**
-   * Called for a transient, in-band failure (the backend responded with `retryable_error`).
-   * Default behaviour waits out the backend's requested `retryAfterMs` (if any) and then throws,
-   * which causes PowerSync to retry the upload. Override to add custom logging/backoff, but a
-   * retryable error must still result in a thrown error so the transaction stays in the queue.
+   * Handles a backend `retryable_error` result. Waits for retryAfterMs, if supplied,
+   * then throws so PowerSync retains the transaction and retries the upload.
+   * Overrides must also throw to keep the transaction queued.
    */
   protected async onRetryableError(result: Extract<TransactionResult, { status: 'retryable_error' }>): Promise<never> {
     await sleep(result.retryAfterMs ?? 0);
@@ -156,14 +128,9 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
   }
 
   /**
-   * Called for a transport-level failure (network error, timeout, non-2xx response) — the backend
-   * was never reached or never returned a classified result at all. Default behaviour routes it
-   * through {@link onRetryableError} so both failure kinds share one override point and the
-   * transaction stays in the queue for retry. Override to distinguish transport failures from
-   * in-band retryable errors.
-   *
-   * A rejected/expired token ({@link AuthenticationError}) is handled here too: the cached token is
-   * dropped so the next attempt's {@link getAuthToken} call fetches a fresh one before retrying.
+   * Handles network errors, timeouts, and non-2xx responses through {@link onRetryableError}.
+   * Clears the cached token on {@link AuthenticationError} so the next upload fetches a new one.
+   * Override to handle transport failures separately from backend retryable results.
    */
   protected async onTransportError(error: unknown): Promise<never> {
     if (error instanceof AuthenticationError) {

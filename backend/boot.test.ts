@@ -6,12 +6,8 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 /**
- * Seam: the backend process itself.
- *
- * Seam 1 (HTTP against the assembled application) cannot observe this, because the behaviour under
- * test is a refusal to reach the point where there is anything to make a request to. An adopter
- * pointing this at their own database is the most likely person to misconfigure it, and the
- * failure has to read as configuration rather than as a bug in their code.
+ * Tests startup failures in a separate process. Invalid configuration should produce
+ * setup instructions and exit before the server starts listening.
  */
 
 const backendDir = path.dirname(fileURLToPath(import.meta.url));
@@ -57,8 +53,7 @@ const bootWith = (env: Record<string, string>): Promise<Boot> =>
     });
     child.stderr.on('data', (d) => (output += d));
 
-    // Without this, a regression that DOES start the server leaves the promise pending until the
-    // suite times out, and leaks a listening process. Kill it and report that it was still up.
+    // Kill a process that has not exited by the deadline so the test cannot leave a server running.
     const deadline = setTimeout(() => {
       child.kill('SIGKILL');
       resolve({ code: null, output, stillRunning: true });
@@ -127,10 +122,9 @@ describe('refusing to start on bad configuration', () => {
     expect(stillRunning).toBe(false);
     expect(code).not.toBe(0);
     expect(output).toContain('DATABASE_URI');
-    // The message must name the fix, not just the fault.
+    // Point the user to the configuration file.
     expect(output.toLowerCase()).toContain('.env');
-    // A raw stack trace is not a readable message. Assert on the shape of one rather than on any
-    // particular frame, so renaming a function cannot quietly make this vacuous.
+    // Match stack frames without depending on function names.
     expect(output).not.toMatch(/^\s+at .+/m);
   }, 40000);
 

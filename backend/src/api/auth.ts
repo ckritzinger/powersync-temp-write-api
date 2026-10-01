@@ -86,7 +86,7 @@ router.get('/keys', async (_req: Request, res: Response<JwksResponse>) => {
 });
 
 /**
- * The public JWK this backend signs tokens with, used by the demo PowerSyncVerifier to verify write requests.
+ * Returns the public key corresponding to the private key used to sign demo tokens.
  */
 export async function getPublicJwk(): Promise<JWK> {
   await ensureKeys();

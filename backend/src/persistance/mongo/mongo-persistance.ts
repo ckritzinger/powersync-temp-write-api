@@ -14,14 +14,13 @@ export const createMongoPersister = async (uri: string, mapper?: EntryMapper): P
   const db = client.db();
   await client.connect();
 
-  // Only discover $jsonSchema validators when no mapper was supplied — an adopter passing their
-  // own mapper has already made this call themselves, and owns this decision entirely.
+  // Custom mappers handle their own schema mapping; only the default mapper needs discovery.
   const schema: Record<string, TableSchema> | null = mapper ? null : await discoverSchema(db);
   const resolvedMapper = mapper ?? createMongoMapper(schema!);
 
   const persister: Persister = {
-    // No native row-level security equivalent for Mongo — auth is unused here. Real per-row
-    // authorization means writing it yourself, either in authorize() or in this transaction.
+    // This adapter does not use auth yet. Add application permission checks in authorize(),
+    // or check existing rows within this database transaction.
     updateBatch: async (batch: CrudEntry[], _auth: AuthContext) => {
       // Transactions require a replica set or sharded cluster.
       const session = client.startSession();
@@ -30,10 +29,8 @@ export const createMongoPersister = async (uri: string, mapper?: EntryMapper): P
 
         for (const [operationIndex, op] of batch.entries()) {
           try {
-            // Strict mode: a table with no discovered $jsonSchema validator has no trustworthy
-            // shape to write against — reject it for shared fatal-error routing, and
-            // reject the whole transaction rather than silently skipping just this op. See
-            // docs/schema-mapping.md.
+            // Reject the transaction if a collection has no discovered validator.
+            // See docs/schema-mapping.md.
             if (schema && !schema[op.table]) {
               throw new FatalOperationError(
                 'SCHEMA_MISMATCH',
@@ -72,9 +69,8 @@ export const createMongoPersister = async (uri: string, mapper?: EntryMapper): P
       } catch (e) {
         // A failing abort must not mask the failure that caused it.
         await session.abortTransaction().catch(() => {});
-        // classifyMongoError expects a raw driver error (reads .code/.hasErrorLabel); an error we
-        // threw ourselves above has neither, and would otherwise fall through to "no code means
-        // retryable" — turning a deliberate, permanent rejection into an infinite retry loop.
+        // Preserve application error classifications. Reclassifying a fatal error without
+        // a driver code would incorrectly mark it as retryable.
         throw e instanceof FatalOperationError || e instanceof RetryableError ? e : classifyMongoError(e);
       } finally {
         await session.endSession();

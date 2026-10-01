@@ -35,8 +35,8 @@ export const createMSSQLPersister = async (uri: string, mapper: EntryMapper = de
   await pool.connect();
 
   const persister: Persister = {
-    // No native row-level security equivalent for SQL Server — auth is unused here. Real per-row
-    // authorization means writing it yourself, either in authorize() or in this transaction.
+    // This adapter does not use auth yet. Add application permission checks in authorize(),
+    // or check existing rows within this database transaction.
     updateBatch: async (batch: CrudEntry[], _auth: AuthContext) => {
       const transaction = pool.transaction();
       try {

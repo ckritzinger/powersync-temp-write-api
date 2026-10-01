@@ -36,11 +36,9 @@ export const createPostgresPersister = (uri: string, mapper: EntryMapper = defau
       try {
         await client.query('BEGIN');
 
-        // The only one of the four databases with native row-level security. This makes the
-        // authenticated caller's id visible to Postgres itself as a session variable, `true`
-        // scoping it to this transaction — so RLS policies can reference it with
-        // current_setting('app.user_id', true). No policies are defined here; write your own on
-        // the tables that need them. See docs/authorization.md.
+        // Expose the verified subject for this transaction. Application RLS policies can read
+        // current_setting('app.user_id', true). Define policies for your tables as described
+        // in docs/authorization.md.
         await client.query('SELECT set_config($1, $2, true)', ['app.user_id', auth.sub]);
 
         for (const [operationIndex, op] of batch.entries()) {

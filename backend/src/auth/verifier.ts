@@ -63,8 +63,8 @@ export function initializeVerifier(): Promise<TokenVerifier> {
   return (initialized ??= loadVerifier());
 }
 
-// Importing the app performs no auth file I/O. Direct users of the app still fail closed if they
-// attempt a write without first initializing it through the normal startup entry point.
+// Importing the app does not load auth configuration. Startup initializes the verifier;
+// direct app usage initializes it on the first verification request.
 export const verifier: TokenVerifier = {
   async verify(token) {
     return (await initializeVerifier()).verify(token);

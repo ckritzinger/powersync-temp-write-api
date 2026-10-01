@@ -14,8 +14,7 @@ try {
   await initializeVerifier();
 } catch (error) {
   if (error instanceof ConfigurationError || error instanceof AuthConfigurationError) {
-    // An adopter pointing this at their own database is the most likely person to land here, and
-    // a stack trace reads like a bug in their code rather than a setting they have not filled in.
+    // Configuration errors include setup instructions; print them without a stack trace.
     console.error(`\nCannot start.\n\n${error.message}\n`);
     process.exit(1);
   }

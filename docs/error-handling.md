@@ -3,7 +3,12 @@
 Every fatal error defaults to backend handling. Replace the methods on
 `fatalErrorHandler` in `backend/src/fatal-error-handler.ts` to choose which errors need
 client intervention and deliver backend-directed failures to your own storage or service.
-Authorization and all four database adapters use this shared routing after rollback.
+Authorization failures reach this handler before persistence starts. If a database transaction
+has started, its adapter attempts rollback before the failure reaches this handler.
+
+The following replaces `fatalErrorHandler` in `backend/src/fatal-error-handler.ts`.
+`developerOwnedStorage` is a placeholder for your storage integration; supply its import and
+implementation. The file already declares `FatalErrorHandler`.
 
 ```ts
 export const fatalErrorHandler: FatalErrorHandler = {
@@ -16,14 +21,15 @@ export const fatalErrorHandler: FatalErrorHandler = {
   async onDeadLetter(entry) {
     // Called for rejected transactions when requiresClientHandling returns false.
     // Store the entry for investigation or notify your support team, for example.
-    // Replace this insert with your own integration; delivery is best effort
-    // and does not block the response (see delivery guarantees below).
+    // Replace this insert with your own integration; delivery is best effort.
+    // The returned promise is not awaited (see delivery behavior below).
     await developerOwnedStorage.insert(entry);
   }
 };
 ```
 
-Throw an application error from authorization, a mapper, or custom persistence logic:
+Import `FatalOperationError` from `backend/src/errors.ts` using the relative path for your
+file, then throw an application error from authorization, a mapper, or custom persistence logic:
 
 ```ts
 throw new FatalOperationError(
@@ -41,8 +47,9 @@ that the authenticated client should receive.
 
 A `DeadLetterEntry` includes a fresh occurrence ID, ISO timestamp, full original transaction,
 verified subject, code, message, optional details and operation index. The whole transaction
-is included because none of its writes were accepted. The occurrence ID identifies this
-notification attempt, not a stable transaction deduplication key.
+is included because the API rejected it as a unit. A connection failure during commit can
+leave the database outcome uncertain; investigate that outcome before replaying writes.
+The occurrence ID identifies this notification attempt, not a stable transaction deduplication key.
 
 Delivery is best effort. The server invokes `onDeadLetter` without awaiting its promise;
 synchronous exceptions and rejected promises are logged, and an unresolved promise does not
@@ -56,8 +63,8 @@ batch stops without sending a dead-letter notification.
 ## Response and queue behavior
 
 Fatal results require `requires_client_handling` at transaction-result level and
-`failed_operation` containing `error_code`, optional `message`, `details` and
-`operation_index`. Success, retryable and not-attempted results do not carry the routing flag.
+`failed_operation` containing required `error_code` and optional `message`, `details`,
+and `operation_index`. Success, retryable and not-attempted results do not carry the routing flag.
 
 | Result | Backend batch | Client queue |
 | --- | --- | --- |
@@ -74,7 +81,9 @@ using Docker Compose). The client cannot override this policy. Older clients may
 `on_fatal_error`, but it is ignored. Deployments previously requesting `skip` from the client
 must now set `BATCH_ON_FATAL_ERROR=skip` on the backend.
 
-Both example connectors expose the same hook:
+Both example connectors expose the same hook. Override it in a subclass or edit your copied
+connector. `CrudTransaction` comes from the PowerSync SDK; `ClientHandledFatalResult` is exported
+by the modular `WriteAPIClient.ts` and declared locally in the single-file connector:
 
 ```ts
 protected async onFatalTransaction(
@@ -91,13 +100,17 @@ protected async onFatalTransaction(
 }
 ```
 
-The hook runs only for client-directed errors. The default logs and retains. Returning
+The hook runs only for client-directed errors. The default logs the error and retains the
+transaction. Returning
 `'complete'` explicitly releases/discards the failed transaction; it does **not** mean the
 source write succeeded. Returning `'retain'`, an invalid value, or throwing keeps it queued
 and throws from the upload attempt so PowerSync can retry. A malformed fatal response,
 including a missing flag, also retains the transaction.
 
-Only the contiguous accepted prefix is completed, including when a callback fails.
+Only consecutive transactions from the start of the batch that may leave the queue are
+completed. This includes successful writes, backend-directed fatal failures, and client-directed
+failures released with `complete`. Earlier accepted transactions are completed even if a later
+callback fails.
 [PowerSync transaction completion also completes earlier transactions from the iterator](https://powersync-ja.github.io/powersync-js/common/interfaces/CommonPowerSyncDatabase#getcrudtransactions),
 so a later success must never complete across a retained transaction.
 
@@ -105,6 +118,5 @@ A retained transaction blocks later uploads. A corrective write queued behind it
 unblock it by itself. For a replacement workflow, capture the user's intended correction
 in application-owned state, get their decision, explicitly release the failed transaction,
 and then submit the replacement. Account for crashes between release and replacement in
-your application if that intent must survive them. The application owns UI, notification
-deduplication, and decisions about release or replacement; returning `'complete'` is an
-explicit acknowledgment of data loss for the rejected write.
+your application if that intent must survive them. Your application supplies the UI, avoids
+duplicate notifications, and decides when to release or replace a rejected transaction. Returning `complete` removes that write from the queue.

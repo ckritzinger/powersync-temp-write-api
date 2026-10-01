@@ -1,464 +1,288 @@
-================================================================================
 MANUAL TEST PLAN — PowerSync Write API
-================================================================================
 
-Every claim the README and docs/ make, in an order that builds on itself. Work
-top to bottom, or jump to a section — each one says what state it assumes.
+Run commands from the repository root unless stated otherwise. Use a disposable
+Postgres database and the local demo auth configuration. These checks do not require
+a PowerSync instance; they do not test replication or client sync.
 
-Tick the [ ] as you go. Where a step has an expected result, it is marked with
-"->". If something differs from the "->" line, that is the bug, whether the
-fault is in the code or in the documentation.
+Record your starting git status and preserve any existing local changes. The steps
+below edit .env and verifier supplements. Restore only the changes made for this test.
 
-This repo ships ONE service: the write API backend (`backend/`). It does not
-bundle a database, a self-hosted PowerSync instance, or a runnable front-end —
-`example-client/` is read-only reference code. Nothing in this plan requires a
-real PowerSync Cloud/self-hosted deployment to be reachable: the demo verifier
-only checks tokens against this backend's own JWKS, so the whole write path is
-testable in isolation. A stand-in "adopter" Postgres, started outside Compose,
-plays the role of "a database you already run."
+Prerequisites: Docker Desktop, Node.js 24, pnpm 9, curl, and Python 3.
+Select Node 24 explicitly; backend/.nvmrc currently pins an older version.
 
+[ ] Install backend dependencies:
 
---------------------------------------------------------------------------------
-BEFORE YOU START
---------------------------------------------------------------------------------
+        pnpm --dir backend install
 
-[ ] Docker Desktop running.
-
-[ ] Working from a clean checkout of this branch, at the repo root.
-
-[ ] Nothing already on port 6060:
+[ ] Stop any existing backend on port 6060 and confirm the port is free:
 
         lsof -nP -iTCP:6060 -sTCP:LISTEN
 
-    -> no output. If a stray backend from a previous run is there, kill it.
 
-[ ] Know the escape hatch. Any time you want to start over from nothing:
+1. INITIAL STARTUP
 
-        docker compose down -v --remove-orphans
-        docker rm -f adopter-db 2>/dev/null
-
-
---------------------------------------------------------------------------------
-1. QUICKSTART — THE PATH IN THE README
---------------------------------------------------------------------------------
-
-Assumes: nothing running, .env untouched from the checkout (DATABASE_URI blank,
-POWERSYNC_URL/JWT_ISSUER blank, the committed throwaway signing keys in place).
-
-[ ] Bring it up with no configuration at all:
+[ ] From a fresh configuration with no backend/powersync-config.json, run:
 
         docker compose up --build
 
-    -> the backend container exits, after up to 3 attempts (restart:
-       on-failure:3), logging "Cannot start." and a message naming
-       DATABASE_URI. This is the correct, documented failure — the README's
-       Quickstart brings up the *container*, not a working server; the
-       Configuration section below is what makes it boot. If the README reads
-       to you like `docker compose up --build` alone should leave something
-       listening on :6060, that is a documentation bug — file it.
+    Expected: Compose rejects the missing bind source. It cannot start the backend
+    until the auth file exists. If you already have an auth export, preserve it and
+    skip this check. Do not overwrite an existing deployment configuration.
 
-[ ] Confirm nothing is listening:
-
-        curl -s http://localhost:6060/
-
-    -> connection refused.
-
-[ ] Tear down:
+[ ] Stop the Compose project before continuing:
 
         docker compose down
 
 
---------------------------------------------------------------------------------
-2. STAND-IN "YOUR OWN DATABASE"
---------------------------------------------------------------------------------
+2. TEST DATABASE
 
-Assumes: nothing running. This plays the part of the database the README says
-you already have, so the rest of this plan has something real to write to.
-
-[ ] Start a Postgres outside the project, on a different port:
+[ ] Start a separate Postgres container:
 
         docker run -d --name adopter-db -p 5433:5432 \
-          -e POSTGRES_PASSWORD=adopterpw -e POSTGRES_DB=adopter \
-          postgres:18 -c wal_level=logical
+          -e POSTGRES_PASSWORD=adopterpw -e POSTGRES_DB=adopter postgres:18
 
-[ ] Prepare it the way the README's table demands for Postgres — schema, then
-    the publication that is easy to forget:
+[ ] Wait until this reports that connections are accepted:
+
+        docker exec adopter-db pg_isready -U postgres -d adopter
+
+[ ] Create the table:
 
         docker exec adopter-db psql -U postgres -d adopter -c \
-          "create table widgets (id uuid primary key default gen_random_uuid(), name text not null)"
+          'CREATE TABLE widgets (id uuid PRIMARY KEY, name text NOT NULL)'
 
-        docker exec adopter-db psql -U postgres -d adopter -c \
-          "create publication powersync for table widgets"
-
-    -> both commands print CREATE TABLE / CREATE PUBLICATION.
+    Expected: CREATE TABLE. Replication publications are unnecessary for these
+    write-only checks. A full sync test needs separate PowerSync source setup.
 
 
---------------------------------------------------------------------------------
-3. CONFIGURATION — MAKING IT BOOT
---------------------------------------------------------------------------------
+3. DATABASE AND AUTH CONFIGURATION
 
-Assumes: section 2 done, nothing from section 1 running.
-
-[ ] Replace the throwaway signing keys:
-
-        cd backend && pnpm generate-keys
-
-    -> prints POWERSYNC_PRIVATE_KEY and POWERSYNC_PUBLIC_KEY values. Paste both
-       into .env, replacing the committed pair.
-
-[ ] Set the remaining values in .env:
+[ ] Set these values in the root .env used by Compose:
 
         DATABASE_TYPE=postgres
         DATABASE_URI=postgres://postgres:adopterpw@host.docker.internal:5433/adopter
-        POWERSYNC_URL=https://example.powersync.journeyapps.com
-        JWT_ISSUER=https://example.powersync.journeyapps.com
+        POWERSYNC_URL=powersync-dev
+        JWT_ISSUER=powersync-dev
+        BATCH_ON_FATAL_ERROR=stop
 
-    (host.docker.internal, not localhost — inside a container, localhost is
-    the container. POWERSYNC_URL/JWT_ISSUER do not need to resolve to anything
-    real for this plan — the backend only uses them as JWT claims and to
-    verify its own tokens against its own key.)
+    Use Docker Desktop's host.docker.internal here. Other Docker environments need
+    an equivalent host address. Leave POWERSYNC_CONFIG_PATH unset to use the default.
 
-[ ] Bring it up:
+[ ] Generate signing keys and copy both printed values into the root .env:
 
-        docker compose up --build
+        pnpm --dir backend generate-keys
 
-    -> "Server is running @ http://127.0.0.1:6060", no restart loop.
+[ ] Follow backend/src/auth/SETUP.md, "Local demo authentication":
+    - Create backend/powersync-config.json with the loopback JWKS URL.
+    - Set issuer, audience, and allowLocalHttp in verifier.ts's supplements object.
+    - Use the powersync-dev issuer and audience shown above.
 
-[ ] Root route:
+    Remote keys are fetched after the API starts, so the loopback JWKS does not
+    require a second server or a pre-existing token.
 
+[ ] Start the backend with the updated code and settings:
+
+        docker compose up -d --build
+        docker compose logs backend
         curl -s http://localhost:6060/
 
-    -> {"message":"backend"}
-
-Leave this running for section 4.
+    Expected: startup log and {"message":"backend"}, without a restart loop.
 
 
---------------------------------------------------------------------------------
-4. THE WRITE PATH, DIRECTLY
---------------------------------------------------------------------------------
+4. WRITES AND FAILURE RESULTS
 
-Assumes: section 3 is up. This is how an adopter's own client actually drives
-the backend, minus the PowerSync SDK in the middle.
+[ ] Obtain a demo token and confirm that the demo JWKS is available:
 
-[ ] Mint a token:
+        TOKEN=$(curl -fsS 'http://localhost:6060/api/auth/token?user_id=manual' \
+          | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')
+        curl -fsS http://localhost:6060/api/auth/keys
 
-        TOKEN=$(curl -s "http://localhost:6060/api/auth/token?user_id=manual" \
-          | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
-        echo "${TOKEN:0:24}..."
+    Expected: a JWKS object with a keys array. Do not publish the token.
 
-    -> a JWT prefix, not empty.
-
-[ ] Check the key the backend verifies against is being served:
-
-        curl -s http://localhost:6060/api/auth/keys
-
-    -> a JWKS document with one key and a "kid".
-
-[ ] Write a transaction batch, into the widgets table from section 2:
+[ ] Write a row:
 
         curl -s -X POST http://localhost:6060/api/data \
-          -H "Authorization: Bearer $TOKEN" \
-          -H 'content-type: application/json' \
-          -d '{"transactions":[{"transaction_id":1,"crud":[
-                {"op":"PUT","table":"widgets","id":"11111111-1111-1111-1111-111111111111",
-                 "op_data":{"name":"manual test row"}}]}]}'
+          -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+          -d '{"transactions":[{"crud":[{"op":"PUT","table":"widgets","id":"11111111-1111-1111-1111-111111111111","op_data":{"name":"manual test row"}}]}]}'
 
-    -> {"results":[{"status":"success"}]}
+    Expected: {"results":[{"status":"success"}]}.
 
-[ ] Prove it really reached the database, not just returned success:
+        docker exec adopter-db psql -U postgres -d adopter -c 'SELECT * FROM widgets'
 
-        docker exec adopter-db psql -U postgres -d adopter -c \
-          "select name from widgets;"
+    Expected: the inserted row.
 
-    -> "manual test row" is there.
+[ ] Send a malformed body with a bearer header:
 
-[ ] Now the contract. Send a request that violates openapi.yaml:
-
-        curl -s -X POST http://localhost:6060/api/data \
-          -H "Authorization: Bearer $TOKEN" \
-          -H 'content-type: application/json' \
+        curl -i -X POST http://localhost:6060/api/data \
+          -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
           -d '{"transactions":"not-an-array"}'
 
-    -> a 400 naming the offending field, from express-openapi-validator. Not a
-       500, and not a success.
+    Expected: HTTP 400.
 
-[ ] And auth. Same request, no token:
+[ ] Test authentication using a valid body and no bearer header:
 
-        curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:6060/api/data \
-          -H 'content-type: application/json' -d '{"transactions":[]}'
+        curl -i -X POST http://localhost:6060/api/data \
+          -H 'Content-Type: application/json' -d '{"transactions":[{"crud":[]}]}'
 
-    -> 401.
+    Expected: HTTP 401. Repeat with "Authorization: Bearer invalid" and the same body.
+    Using an invalid body would mix request-validation and authentication failures.
 
-[ ] Confirm there is no authorization by default — every authenticated write
-    is allowed, no matter what it touches (this is docs/authorization.md's
-    claim). A second token for a different user_id can still write the same
-    row:
+[ ] Confirm that a failed operation rolls back its whole transaction:
 
-        TOKEN2=$(curl -s "http://localhost:6060/api/auth/token?user_id=someone-else" \
-          | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
         curl -s -X POST http://localhost:6060/api/data \
-          -H "Authorization: Bearer $TOKEN2" -H 'content-type: application/json' \
-          -d '{"transactions":[{"transaction_id":1,"crud":[
-                {"op":"DELETE","table":"widgets","id":"11111111-1111-1111-1111-111111111111"}]}]}'
+          -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+          -d '{"transactions":[{"crud":[{"op":"PUT","table":"widgets","id":"22222222-2222-2222-2222-222222222222","op_data":{"name":"rolled back"}},{"op":"PUT","table":"widgets","id":"33333333-3333-3333-3333-333333333333","op_data":{"name":null}}]},{"crud":[]}]}'
 
-    -> {"results":[{"status":"success"}]} — user_id "someone-else" was allowed
-       to delete "manual"'s row. Confirm it is actually gone:
+    Expected: HTTP 200 with first result fatal_error, requires_client_handling false,
+    error_code NOT_NULL_VIOLATION, and operation_index 1. The second result is
+    not_attempted because BATCH_ON_FATAL_ERROR=stop. The default handler logs a dead letter.
 
-        docker exec adopter-db psql -U postgres -d adopter -c "select name from widgets;"
+        docker exec adopter-db psql -U postgres -d adopter -c 'SELECT * FROM widgets'
 
-    -> empty.
+    Expected: only the original row; neither row from the failed transaction exists.
 
-[ ] Tear down, keeping the volume:
+[ ] Set BATCH_ON_FATAL_ERROR=skip in the root .env, then recreate the container:
+
+        docker compose up -d --force-recreate backend
+
+    Repeat the failed batch above. Expected: the first result is still fatal_error;
+    the second result is success. Restore stop and recreate the container afterwards.
+    A container restart alone does not reload changed Compose environment values.
+
+[ ] Confirm the default authorizer permits another user to delete the original row:
+
+        TOKEN2=$(curl -fsS 'http://localhost:6060/api/auth/token?user_id=someone-else' \
+          | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')
+        curl -s -X POST http://localhost:6060/api/data \
+          -H "Authorization: Bearer $TOKEN2" -H 'Content-Type: application/json' \
+          -d '{"transactions":[{"crud":[{"op":"DELETE","table":"widgets","id":"11111111-1111-1111-1111-111111111111"}]}]}'
+
+    Expected: success and an empty widgets table. This verifies the default behavior;
+    application-specific authorization or RLS changes the expected result.
+
+[ ] Stop the backend:
 
         docker compose down
 
 
---------------------------------------------------------------------------------
-5. THE EXAMPLE CLIENT
---------------------------------------------------------------------------------
+5. EXAMPLE CLIENT REFERENCES
 
-Assumes: nothing running. `example-client/` is read-only reference code, not a
-runnable project — this section checks that claim and the ones around it.
-
-[ ] Confirm it really has no build tooling of its own:
-
-        ls example-client/package.json 2>/dev/null
-
-    -> no such file.
-
-[ ] Confirm the layout matches example-client/README.md's "What's here" table:
+[ ] Confirm the files described in example-client/README.md exist:
 
         find example-client/src -type f | sort
 
-    -> generated/api.d.ts, PowersyncConnector.ts, PowersyncConnector.singlefile.ts,
-       library/powersync/{AppSchema,WriteAPIClient,OpenAPITransport,
-       DemoConnectorConfig,TransactionBatching}.ts
+    Include the connector maintenance prompt when comparing the complete file list.
 
-    (if PowersyncConnector.ts has been split further, the README's table and
-    this list should still agree — that is the point of the check.)
+[ ] Confirm the single-file connector has one import, from @powersync/web:
 
-[ ] Confirm PowersyncConnector.ts actually implements PowerSyncBackendConnector's
-    two required methods, and that they are the first thing in the class body
-    (the file's own "START HERE" comment claims this):
+        rg '^import' example-client/src/PowersyncConnector.singlefile.ts
 
-        grep -n "uploadData\|fetchCredentials\|class PowersyncConnector" \
-          example-client/src/PowersyncConnector.ts | head -5
-
-    -> uploadData and fetchCredentials both appear, ahead of the constructor.
-
-[ ] Confirm PowersyncConnector.singlefile.ts really has zero dependencies beyond
-    @powersync/* (its whole reason to exist):
-
-        grep -n "^import" example-client/src/PowersyncConnector.singlefile.ts
-
-    -> exactly one import line, from '@powersync/web'. Anything else — a second
-       import, or one from 'uuid'/'openapi-fetch'/a relative path — is a finding.
-
-[ ] Confirm example-client/.env.example's variables match the table in
-    example-client/README.md — same names, same defaults:
-
-        diff <(grep -oE '^VITE_[A-Z_]+' example-client/.env.example | sort) \
-             <(grep -oE '`VITE_[A-Z_]+`' example-client/README.md | tr -d '`' | sort -u)
-
-    -> no diff.
+[ ] Check both connectors in your own PowerSync application using the client guide.
+    Configure authentication and the real sync URL; the HTTP-only setup above does
+    not establish a sync connection. Compare successful uploads, retained failures,
+    token refresh, and the intended client UI for onFatalTransaction.
 
 
---------------------------------------------------------------------------------
-6. CHANGING THE BACKEND CODE
---------------------------------------------------------------------------------
+6. DEVELOPMENT RUN MODES
 
-Assumes: nothing running, .env configured as in section 3. Two loops are
-claimed — the fast one and the deployment-shaped one. Test both.
+[ ] Start the Docker development overlay:
 
---- 6a. The development overlay (no rebuild) -----------------------------------
+        docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up --build
 
-[ ] In .env (or exported in your shell), append the dev overlay:
+    In another terminal, temporarily change backend/app.ts's root response message.
+    Expected: tsx reloads and curl http://localhost:6060/ returns the changed message.
+    Restore the original response and confirm it reloads again.
 
-        COMPOSE_FILE=docker-compose.yaml:docker-compose.dev.yaml
+[ ] Stop the overlay:
 
-[ ] docker compose up --build   (the build is only needed the first time)
+        docker compose -f docker-compose.yaml -f docker-compose.dev.yaml down
 
-[ ] Confirm the backend is running under watch, not the built image:
+[ ] Check the image build path with plain docker compose up -d --build.
+    A source edit should not appear after docker compose restart backend.
+    Rebuild with docker compose up -d --build backend to include it.
+    Restore your test edit, rebuild, and stop the backend.
 
-        docker compose logs backend | tail -20
+[ ] For local execution, create backend/.env from backend/.env.template.
+    Copy the signing settings from the root .env and use the same auth file and
+    supplements. Change DATABASE_URI to postgres://postgres:adopterpw@localhost:5433/adopter.
 
-    -> tsx watch output, and "Server is running".
+        pnpm --dir backend dev
 
-[ ] Edit backend/app.ts — change the root route's body:
+    Expected: root route and authenticated requests work. The process loads
+    backend/.env, not the root .env. Stop it before restarting Compose.
 
-        res.status(200).send({ message: 'backend' });
-          ->
-        res.status(200).send({ message: 'edited live' });
 
-[ ] Save, wait ~2 seconds, then:
+7. GENERATED TYPES
 
-        curl -s http://localhost:6060/
+[ ] Regenerate the types:
 
-    -> {"message":"edited live"} with NO rebuild and NO restart command.
+        pnpm --dir backend generate-types
+        git diff -- backend/src/generated/api.ts example-client/src/generated/api.d.ts
 
-[ ] Confirm node_modules were not clobbered by the bind mount (the macOS
-    native-binary trap):
+    Expected: generation introduces no additional differences from your starting tree.
+    The single-file connector's types are maintained separately; follow its maintenance prompt.
 
-        docker compose exec backend node -e "require('pg'); console.log('deps ok')"
 
-    -> deps ok. A crash here means the host's node_modules leaked in.
+8. AUTOMATED CHECKS
 
-[ ] Revert the edit, confirm it reverts live.
+[ ] With Node.js 24 selected, run:
 
-[ ] docker compose down
+        pnpm --dir backend test
+        pnpm --dir backend check
 
---- 6b. The rebuild path -------------------------------------------------------
+    Expected: tests and type checking pass. Tests use fixtures and mocks, but the HTTP
+    tests need permission to open local listening ports.
 
-[ ] Unset COMPOSE_FILE / remove the dev overlay line, so plain
-    docker-compose.yaml is in effect.
 
-[ ] docker compose up -d --build   then   curl -s http://localhost:6060/
+9. STARTUP AND KEY FAILURES
 
-    -> {"message":"backend"} — the original, from the image.
+Use the configured test environment. Restore each setting after its check, and use
+force-recreate for environment changes. Keep the required auth file mounted.
 
-[ ] Edit backend/app.ts again to 'rebuilt', then WITHOUT rebuilding:
+[ ] Blank DATABASE_URI in the root .env and recreate the container.
+    Expected: Cannot start. with instructions to set DATABASE_URI. Restart policy
+    on-failure:3 limits automatic retries to three after the initial failed start.
+
+[ ] Restore the URI and set DATABASE_TYPE=postgresql; recreate the container.
+    Expected: unsupported type, with mongodb, mssql, mysql, postgres listed.
+
+[ ] Set BATCH_ON_FATAL_ERROR=continue; recreate the container.
+    Expected: instructions to choose stop or skip.
+
+[ ] Supply malformed auth JSON in a separate powersync-config-test.json file and
+    point POWERSYNC_CONFIG_PATH at its absolute host path; recreate the container.
+    Expected: Cannot start. with an invalid-JSON message. Restore the original path.
+
+[ ] With loopback JWKS verification configured, blank both signing key values and recreate:
+
+        docker compose up -d --force-recreate backend
+        TOKEN=$(curl -fsS 'http://localhost:6060/api/auth/token?user_id=manual' \
+          | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')
+        docker compose logs backend
+
+    Expected: the first token request triggers the temporary-key warning.
 
         docker compose restart backend
-        curl -s http://localhost:6060/
 
-    -> still {"message":"backend"}. The image is what runs; a restart is not
-       enough. This is the point of the distinction.
+    Wait for the root route to respond, then submit the old token with a valid body:
 
-[ ] Now rebuild:
+        curl -i -X POST http://localhost:6060/api/data \
+          -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+          -d '{"transactions":[{"crud":[]}]}'
 
-        docker compose up -d --build backend
-        curl -s http://localhost:6060/
-
-    -> {"message":"rebuilt"}.
-
-[ ] Revert the edit and rebuild once more so the tree is clean.
-
-[ ] docker compose down
-
---- 6c. Skipping Docker entirely (the root README's claim) ---------------------
-
-[ ] cd backend && pnpm install && pnpm dev
-
-    -> "Server is running @ http://127.0.0.1:6060" on the host, reading the
-       root .env via dotenv, restarting on save.
-
-[ ] Ctrl-C to stop.
+    Expected: 401 because the new process generates a different key when JWKS is requested.
+    Restore both persistent keys and recreate the container.
 
 
---------------------------------------------------------------------------------
-7. GENERATING TYPES FROM THE CONTRACT
---------------------------------------------------------------------------------
-
-Assumes: nothing running.
-
-[ ] Regenerate both stubs from openapi.yaml and confirm the committed ones are
-    still current:
-
-        cd backend && pnpm install && pnpm generate-types
-        git status --short
-
-    -> no diff on backend/src/generated/api.ts or
-       example-client/src/generated/api.d.ts. If there is a diff, either
-       openapi.yaml changed without regenerating, or generate-types silently
-       drifted — both are findings.
-
-
---------------------------------------------------------------------------------
-8. THE AUTOMATED SUITES
---------------------------------------------------------------------------------
-
-Assumes: nothing running. Neither needs Docker or a real database — the tests
-use their own fakes/mocks.
-
-[ ] Backend test suite:
-
-        cd backend && pnpm test
-
-    -> all green.
-
-[ ] Typecheck:
-
-        cd backend && pnpm check
-
-    -> no errors.
-
-There is no root-level package.json or test suite — the repo root has nothing
-to install and nothing to run (the README says this explicitly; confirm it's
-still true):
-
-        ls package.json 2>/dev/null
-
-    -> no such file.
-
-
---------------------------------------------------------------------------------
-9. FAILURE PATHS — THE MESSAGES SOMEONE WILL ACTUALLY HIT
---------------------------------------------------------------------------------
-
-Assumes: .env configured as in section 3, nothing running. Each of these is a
-mistake the docs promise to catch. If a message is unhelpful, that is a
-finding.
-
-[ ] Missing URI. Comment out DATABASE_URI in .env, then:
-
-        docker compose up backend
-
-    -> the backend exits, having printed a message that names DATABASE_URI and
-       shows the URI shape. It must NOT loop forever: restart: on-failure:3
-       gives up after 3 attempts so the message stays on screen. Restore
-       DATABASE_URI afterwards.
-
-[ ] Unsupported type. Restore DATABASE_URI, set DATABASE_TYPE=postgresql (the
-    near-miss spelling PowerSync's own config uses), then:
-
-        docker compose up backend
-
-    -> a message saying postgresql is not supported and listing exactly:
-       mongodb, mssql, mysql, postgres. Set it back to postgres afterwards.
-
-[ ] Unstable signing keys. Blank POWERSYNC_PRIVATE_KEY and POWERSYNC_PUBLIC_KEY
-    in .env, then:
-
-        docker compose up -d
-        docker compose logs backend | grep -i "temporary key pair"
-
-    -> a warning that a temporary key pair was generated (the backend still
-       starts — this is a soft fallback, not a boot failure). Now mint a
-       token, restart, and use the OLD token:
-
-        TOKEN=$(curl -s "http://localhost:6060/api/auth/token?user_id=manual" \
-          | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
-        docker compose restart backend
-        curl -s -X POST http://localhost:6060/api/data \
-          -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-          -d '{"transactions":[]}'
-
-    -> 401 — the restart generated a brand-new temporary key, so the old
-       token's "kid" no longer matches anything in /api/auth/keys. Restore the
-       committed (or your own regenerated) key pair in .env when done.
-
-[ ] Port already in use. Start something on 6060 on the host, then
-    `docker compose up`.
-
-    -> a bind error naming 6060. (`cd backend && pnpm start` is the realistic
-       way to cause this by accident.)
-
-
---------------------------------------------------------------------------------
 TEARDOWN
---------------------------------------------------------------------------------
 
-[ ] docker compose down -v --remove-orphans
-[ ] docker rm -f adopter-db
-[ ] git status --short    -> clean, apart from .env if you changed keys.
+[ ] Remove this test's containers and volumes:
 
+        docker compose down -v --remove-orphans
+        docker rm -f adopter-db
 
---------------------------------------------------------------------------------
-NOTES / FINDINGS
---------------------------------------------------------------------------------
+[ ] Restore the environment settings, verifier supplements, and auth file changed for
+    this test. Preserve any earlier local work. Remove only temporary files you created.
 
-Section    What happened                                        Verdict
--------    -------------------------------------------------    -------
+[ ] Record untested paths or unexpected results below.
 
-
-
+Section    Expected behavior    Actual behavior    Follow-up

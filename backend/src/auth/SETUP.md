@@ -1,113 +1,195 @@
-# Setup guide: verifying PowerSync tokens in your write API
+# Configuring token verification
 
-You do not hand-write issuer/audience/key settings: the instance configuration already contains
-them, and the resolver turns it into a verifier or tells you exactly which field is missing.
+The default `backend/src/auth/verifier.ts` reads a PowerSync Cloud JSON export, resolves
+its authentication settings, and builds a verifier. It may need additional trusted
+settings, such as the expected issuer or audience.
 
-**Prerequisites:** Node.js 22+, the `jose` dependency, the modules under `src/` available to your
-backend, and the [PowerSync CLI](https://github.com/powersync-ja/powersync-cli) for the export.
+Authentication configuration is separate from the demo signing keys. The API does not
+accept tokens from `/api/auth/token` merely because it issued them.
 
-## 1. Export the instance configuration (PowerSync Cloud)
+## Choose an integration
 
-```sh
-powersync login                 # or set PS_ADMIN_TOKEN
+- **PowerSync Cloud:** use the export and supplements below. Supabase with asymmetric
+  signing keys is supported by this path.
+- **Self-hosted PowerSync:** adapt the loader to use `resolveSelfHostedAuth`, as shown below.
+  The default loader does not read YAML or detect self-hosted configuration automatically.
+- **Custom provider:** preserve the startup and request exports when replacing the verifier.
+  See [Supabase and Clerk integration](../../../docs/auth-verifiers.md).
+- **Local HTTP testing:** use the demo configuration below. It requires no PowerSync instance.
 
-powersync fetch instances       # find the instance you want
+Use Node.js 24 and pnpm 9 for local development and tests. Install backend dependencies
+with `pnpm --dir backend install` from the repository root. The export commands also require
+the [PowerSync CLI](https://docs.powersync.com/tools/cli).
 
-1. Option 1
-powersync link cloud            # link this directory to it, once
-powersync fetch config --output=json > powersync-config.json
+## PowerSync Cloud export
 
-2. Option 2
-powersync fetch config \
-  --instance-id="<instance-id>" \
-  --project-id="<project-id>" \
-  --org-id="<org-id>" \
-  --output=json > powersync-config.json
-```
-
-If the directory is not linked, pass `--instance-id=<instance-id>` to `fetch config` instead of
-linking. Flags above are CLI v0.10; v0.9 also required `--project-id` and `--org-id`.
-
-Two things about that file:
-
-- **Keep it out of version control.** The dump carries database settings and secret references.
-  This repository ignores `powersync-config*.json` — do the same in yours.
-- **Pass it whole.** The resolver expects the complete CLI response (the object with a top-level
-  `config` key), not just the `client_auth` section. It reads only auth fields and stores nothing.
-
-Re-export whenever you change auth settings in the dashboard. The dump is a snapshot; a verifier
-built from a stale one may not match what the instance currently accepts.
-
-### Supplying the file at startup
-
-For local execution, save the export as `backend/powersync-config.json`. That default is resolved
-relative to the verifier module, regardless of where you start the process. Alternatively set
-`POWERSYNC_CONFIG_PATH` in the process environment or the `.env` loaded from your working directory:
+From the repository root, export directly to the path the backend expects:
 
 ```sh
-cd backend
-POWERSYNC_CONFIG_PATH=/absolute/path/to/powersync-config.json pnpm start
+powersync login
+powersync fetch config --instance-id="<instance-id>" --output=json > backend/powersync-config.json
 ```
 
-A relative override is resolved from the process working directory. Generic providers may also
-need trusted `issuer` and `instanceUrl` or `audience` supplements in `src/auth/verifier.ts`; follow
-the resolver diagnostics and the table in that file.
+Alternatively, run `powersync link cloud --instance-id="<instance-id>"` once, then omit the
+instance flag on later exports. If your installed CLI also requires organization or project
+IDs, pass `--org-id` and `--project-id`; use `powersync fetch config --help` to inspect its flags.
+The [export command](https://github.com/powersync-ja/powersync-cli/blob/main/cli/src/commands/fetch/config.ts)
+prints JSON when `--output=json` is supplied.
 
-Docker Compose mounts `./backend/powersync-config.json` read-only at
-`/run/secrets/powersync-config.json` and sets the container's `POWERSYNC_CONFIG_PATH` accordingly.
-To use another host file, set `POWERSYNC_CONFIG_PATH` to its absolute host path in the root `.env`
-or shell before running `docker compose up --build`. The source file must exist; Compose will
-reject a missing bind source instead of creating a directory. The development overlay uses the
-same mount. Config exports are excluded from the image and Git.
+Pass the complete response with its top-level `config` object. Keep it out of version control;
+it can contain database settings and secret references. This repository ignores
+`powersync-config*.json` and excludes them from Docker images.
 
-Startup initializes auth before listening. Unreadable files, invalid JSON, or unsupported auth
-settings stop the backend with `Cannot start.` and setup instructions, without printing config
-contents or a stack trace. Auth is required; there is no fallback to demo tokens. Configuration
-and verification keys are initialized once per process, so restart after changing the export or
-supplements. Remote JWKS keys still refresh according to the verifier's cache policy.
+Re-export and restart the backend after changing auth settings. The resolver may inspect
+replication settings to identify a Supabase project. If it infers Supabase from a database
+connection, verify separately that your PowerSync instance accepts those tokens too.
 
-Tests use synthetic auth configuration and local signing keys. They do not require your export
-or a live identity provider.
+### Supplements
 
-## 2. Self-hosted instead of Cloud
-
-Self-hosted deployments have no management API, so `powersync fetch config` does not apply. Parse
-`config/service.yaml` yourself — resolving `!env` references as PowerSync does — and call
-`resolveSelfHostedAuth`, which takes `client_auth.audience` as the complete accepted list:
+Edit the existing `supplements` object in `backend/src/auth/verifier.ts`.
+For a generic provider, for example:
 
 ```ts
-const service = parse(await readFile('./config/service.yaml', 'utf8'), { customTags: [envTag] });
-const result = resolveSelfHostedAuth(service, { issuer: 'powersync-dev' });
+const supplements: AuthSupplements = {
+  issuer: 'https://issuer.example.com',
+  instanceUrl: 'https://your-instance.powersync.example.com'
+};
 ```
 
-See `examples/self-hosted-verifier.ts` for the `!env` tag and the typical `jwksUriOverride`. The two
-entry points are deliberately separate because Cloud and self-hosted disagree on what a configured
-audience means; `instanceUrl` and `jwksUri` are rejected for self-hosted. Self-hosted Supabase Auth
-needs a second audience policy and is not supported — configure its JWKS endpoint explicitly.
+Use your provider's actual issuer and your actual PowerSync instance URL. Instead of
+`instanceUrl`, you can supply an `audience` array containing the intended accepted audiences,
+including any exported `additional_audiences`.
 
-## 3. What your route handlers see
+Standard hosted Supabase configurations usually need no supplements. For a custom domain
+or ambiguous project detection, supply `provider: 'supabase'` and `supabaseUrl` as directed by
+the resolver. See the full supplement table in `verifier.ts`.
 
-`verify(token)` resolves to `{ sub, claims }` after checking signature, allowed algorithm, issuer,
-audience, expiry, `nbf`, and a non-empty subject. Otherwise it throws one of:
+For JWKS URLs, distinguish two settings:
 
-| Error                    | Handling                                                                                                      |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| `AuthConfigurationError` | Resolved settings were incomplete. Fail startup and fix configuration.                                        |
-| `InvalidTokenError`      | Bad signature or claims, or no matching key. Reject with 401.                                                 |
-| `KeyFetchError`          | The JWKS endpoint could not supply keys. Fail closed; 503 separates a dependency outage from bad credentials. |
+- `jwksUri` supplies a missing endpoint; it cannot conflict with the exported endpoint.
+- `jwksUriOverride` replaces remote endpoints when the backend needs a different address.
+  It leaves inline public keys unchanged.
 
-Remote keys are cached (5s fetch timeout, 10-minute cache, 30s refresh cooldown, all adjustable via
-`VerifierOptions`), so a rotation may take a moment to become visible. Inline keys come from the
-dump: rotating them means re-exporting and restarting.
+HTTPS is required by default. For local development, `allowLocalHttp: true` permits loopback
+HTTP endpoints. Other HTTP hosts require exact names in `allowInsecureHttpHosts`.
 
-## Boundaries worth knowing before you start
+## File paths and startup
 
-- Asymmetric user tokens only. A dump containing a Supabase legacy HS256 secret or other symmetric
-  key is rejected outright, even if a usable key source sits beside it.
-- PowerSync temporary tokens are never accepted.
-- One issuer and one audience policy per verifier. Multiple issuers, or separate Clerk session
-  tokens with an `azp` policy, need an adapter that does not exist yet.
-- Authentication only. Deciding whether this `sub` may perform this write is still your backend's
-  job. Base authorization on server-controlled permissions. A valid signature proves the issuer
-  issued the claims, but some claims may contain profile data the user can edit before a token is
-  issued (such as Supabase's `user_metadata`). Do not use those claims to grant permissions.
+| Run mode | Environment file | Default auth file |
+| --- | --- | --- |
+| Docker Compose | Root `.env`, for Compose interpolation | `backend/powersync-config.json` on the host |
+| `pnpm --dir backend dev` or `start` | `backend/.env` | `backend/powersync-config.json` |
+
+For Compose, `POWERSYNC_CONFIG_PATH` in the root `.env` selects an absolute host path. Compose
+mounts that file at `/run/secrets/powersync-config.json` and sets the container's variable to
+the mounted path. A missing source file prevents the container from starting.
+
+For local execution, the default path is relative to the verifier module. A custom
+`POWERSYNC_CONFIG_PATH` is resolved from the process working directory, normally `backend/`.
+For example, from the repository root:
+
+```sh
+POWERSYNC_CONFIG_PATH=/absolute/path/to/powersync-config.json pnpm --dir backend start
+```
+
+Startup calls `initializeVerifier()` before listening. Invalid configuration produces
+`Cannot start.` and setup instructions. Remote JWKS endpoints are contacted on demand during
+verification, so startup does not test their availability. Configuration and inline keys are
+cached per process; restart after changing them. Remote keys refresh according to the cache policy.
+
+## Local demo authentication
+
+For the manual HTTP checks, create `backend/powersync-config.json` with this content:
+
+```json
+{
+  "config": {
+    "client_auth": {
+      "jwks_uri": "http://127.0.0.1:6060/api/auth/keys"
+    }
+  }
+}
+```
+
+This is a local test configuration using the Cloud export format, not an export from an instance.
+Set the `supplements` object in `backend/src/auth/verifier.ts` to:
+
+```ts
+const supplements: AuthSupplements = {
+  issuer: 'powersync-dev',
+  audience: ['powersync-dev'],
+  allowLocalHttp: true
+};
+```
+
+Set `JWT_ISSUER=powersync-dev` and `POWERSYNC_URL=powersync-dev` in the environment file for
+your run mode. Generate a signing pair with `pnpm --dir backend generate-keys` and copy both
+values into that same environment file. The loopback JWKS URL works inside the backend
+container and for a local backend on port 6060. Adjust it if you change the backend's port.
+
+This setup tests writes without a sync connection. To sync with a real PowerSync instance,
+configure that instance to trust the demo keys and accept the token's audience. The instance
+must reach its configured JWKS URL; a cloud instance cannot use your backend's loopback URL.
+Set the client's sync URL to the real instance URL. The client's sync URL and the token's
+`aud` are separate settings, even when they have the same value.
+
+## Self-hosted PowerSync
+
+Use the configuration that runs your PowerSync service. Parse its YAML and resolve `!env`
+references in your own loading code, or save the already-resolved configuration as JSON.
+The repository does not include a YAML parser or a service configuration file.
+
+For the JSON approach, save the resolved service configuration in `backend/powersync-config.json`.
+It has `client_auth` at the top level, without the Cloud `config` wrapper. For example:
+
+```json
+{
+  "client_auth": {
+    "jwks_uri": "https://issuer.example.com/.well-known/jwks.json",
+    "audience": ["powersync-app"]
+  }
+}
+```
+
+Adapt `backend/src/auth/verifier.ts` as follows:
+
+1. Import `resolveSelfHostedAuth` in place of `resolvePowerSyncAuth` from `./verifier/index.js`.
+2. Keep file loading, JSON parsing, diagnostic handling, and `createTokenVerifier(result.config)`.
+3. Replace the resolver call with `resolveSelfHostedAuth(dump, supplements)`.
+4. Set `supplements` to your expected issuer, for example `{ issuer: 'https://issuer.example.com' }`.
+   Remove Cloud-only `instanceUrl`, `jwksUri`, `provider`, and `supabaseUrl` supplements.
+5. Update the loader's file-error messages to refer to your service JSON instead of a Cloud export.
+   Keep the `initializeVerifier` and `verifier` exports used by the application.
+
+The existing Compose mount can carry this JSON file after the loader is adapted. Rebuild the
+image, or restart the development process, after changing the loader.
+
+`client_auth.audience` is the complete audience list for this resolver. Use `jwksUriOverride`
+when the backend needs a different endpoint address. The resolver does not support the
+self-hosted `supabase: true` mode's separate audience policy. For Supabase, omit that flag
+and configure `client_auth.jwks_uri` and `client_auth.audience: ["authenticated"]` directly;
+supply the project's `/auth/v1` issuer. See [PowerSync's manual configuration](https://docs.powersync.com/configuration/auth/supabase-auth#manual-jwks-configuration).
+
+## Verification behavior
+
+The built-in verifier requires a valid signature, an allowed asymmetric algorithm, matching
+issuer and audience, `exp`, and a non-empty `sub`. It also checks `nbf` when present.
+It returns `{ sub, claims }` or throws:
+
+| Error | Meaning and current handling |
+| --- | --- |
+| `AuthConfigurationError` | Invalid settings; normal startup fails before listening. |
+| `InvalidTokenError` | Invalid signature or claims, or no matching key. Middleware returns 401. |
+| `KeyFetchError` | JWKS retrieval failed. Middleware currently returns 401 for this too. |
+
+Remote JWKS defaults are a 5-second fetch timeout, 10-minute cache, and 30-second refresh
+cooldown. Pass `VerifierOptions` to `createTokenVerifier` to change them. Inline key rotation
+requires updating the file and restarting.
+
+The built-in resolver supports one issuer and one audience policy per verifier. It rejects
+symmetric keys, private keys, legacy Supabase secrets, and configurations with no supported
+verification keys. PowerSync temporary tokens are excluded. Clerk session tokens without
+`aud` need the custom integration in [the provider guide](../../../docs/auth-verifiers.md).
+
+Authentication does not restrict writes. Add [authorization](../../../docs/authorization.md)
+using trusted identity and permissions, and configure sync access separately.

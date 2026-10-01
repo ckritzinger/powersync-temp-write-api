@@ -1,6 +1,6 @@
 /**
- * The backend is misconfigured and cannot start. Carries a message written for whoever is running
- * it, naming the fix rather than only the fault.
+ * The backend cannot start because of invalid configuration.
+ * The message should explain how to fix it.
  */
 export class ConfigurationError extends Error {
   constructor(message: string) {

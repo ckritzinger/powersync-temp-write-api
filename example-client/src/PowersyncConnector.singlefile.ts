@@ -1,50 +1,25 @@
-// ============================================================================================
-// PowerSync Write API connector — single-file version
-// ============================================================================================
+// PowerSync Write API connector
 //
-// Copy this ONE file into your project and it works, with no other files from this repo and no
-// extra npm dependencies (beyond `@powersync/web` or `@powersync/react-native`, which you already
-// have). If you'd rather adapt a version split across small, well-named files (types, batching,
-// transport, config all separated), see `PowersyncConnector.ts` and `library/powersync/` next to
-// this file instead — same behaviour, different packaging.
+// Copy this file into your app to upload queued transactions with plain fetch.
+// It requires @powersync/web or @powersync/react-native >=1.26.0 for getCrudTransactions().
+// For the modular version, see PowersyncConnector.ts and library/powersync/.
 //
-// What you get:
-//   - PowerSyncBackendConnector implementation: fetchCredentials() + uploadData()
-//   - Talks to this repo's write API backend (`backend/`) via plain `fetch` — no `openapi-fetch`,
-//     no generated types, no build step required to consume this file
-//   - Batches queued CrudTransactions into upload requests, with retry/fatal-error handling
-//   - A demo auth default that mints a token from the backend's own `/api/auth/token` endpoint
+// Set BACKEND_URL and POWERSYNC_URL below. Adjust the batch limits, request timeout, and
+// localStorage key as needed, or connect these constants to your application's configuration.
 //
-// WHAT YOU MUST EDIT — the SHOUTY_CASE consts directly below. There is no env-var indirection
-// here on purpose: a file meant to be pasted into an arbitrary project (Vite, Next, React Native,
-// plain Node...) can't assume how *your* bundler exposes environment variables. Point these
-// consts at your own values, or wire them up to your own config/env system if you prefer.
+// The default fetchCredentials() obtains a demo token from GET /api/auth/token and reuses it
+// for writes. Configure your PowerSync instance to trust GET /api/auth/keys for sync, and
+// configure the write API to verify the token. Replace getAuthToken() with your identity
+// provider's token retrieval for production. Sync and writes should identify the same user.
 //
-// AUTH — READ THIS BEFORE SHIPPING:
-//   fetchCredentials() below returns a token minted by this backend's demo `GET /api/auth/token`
-//   endpoint, reused for write API calls too (one token, both purposes). This is convenient for
-//   local development but:
-//     1. It will NOT work against a real PowerSync sync connection until your PowerSync
-//        instance's custom-auth (JWKS) setting is pointed at this backend's `GET /api/auth/keys`.
-//        Until then PowerSync rejects every token this mints and sync never connects — even
-//        though uploadData() below keeps working fine, since it talks to the backend directly.
-//     2. Once you have a real identity provider, replace fetchCredentials() (and getAuthToken()
-//        below) with a mechanism that obtains a token from it — ideally the same token you use to
-//        authenticate against your own write API. See:
-//          https://docs.powersync.com/configuration/auth/development-tokens
-//          https://docs.powersync.com/configuration/app-backend/client-side-integration#backend-connector
-//        For guidance wiring up specific real-world providers (Supabase, Auth0, Clerk, Firebase,
-//        custom JWT, ...), see this repo's `docs/auth-verifiers.md`.
-//
-// ============================================================================================
+// Setup references:
+// https://docs.powersync.com/configuration/auth/development-tokens
+// https://docs.powersync.com/configuration/app-backend/client-side-integration#backend-connector
+// See docs/auth-verifiers.md in this repository for Supabase and Clerk examples.
 
-// Requires @powersync/web (or @powersync/react-native) >=1.26.0 — that's the version
-// getCrudTransactions() was added in, and uploadTransactionBatch() below depends on it.
 import type { AbstractPowerSyncDatabase, CrudEntry, CrudTransaction, PowerSyncBackendConnector } from '@powersync/web';
 
-// ------------------------------------------------------------------------------------------
-// CONFIG — edit these for your own project
-// ------------------------------------------------------------------------------------------
+// Configuration
 
 /** Base URL of your write API, e.g. `http://localhost:6060` in local dev. */
 const BACKEND_URL = 'http://localhost:6060';
@@ -55,7 +30,7 @@ const POWERSYNC_URL = '';
 /** localStorage key used to persist the demo auth's anonymous user id across reloads. */
 const USER_ID_STORAGE_KEY = 'ps_user_id';
 
-/** Transactions per upload request. 1 uploads one transaction per attempt (the safest default). */
+/** Transactions per upload request. Defaults to one transaction per attempt. */
 const MAX_TRANSACTIONS_PER_BATCH = 1;
 
 /** Upper bound on total CRUD operations per upload request, regardless of transaction count. */
@@ -64,50 +39,32 @@ const MAX_OPERATIONS_PER_BATCH = 1000;
 /** Abort a write API request that takes longer than this many milliseconds. */
 const REQUEST_TIMEOUT_MS = 30_000;
 
-// ------------------------------------------------------------------------------------------
-// The connector — see the supporting types/helpers below the class if you want the wire-level
-// detail.
-// ------------------------------------------------------------------------------------------
+// Connector implementation; supporting types and helpers follow the class.
 
 export class PowersyncConnector implements PowerSyncBackendConnector {
-  // ===========================================================================================
-  // START HERE: uploadData and fetchCredentials are what connect PowerSync to your backend.
-  // Both ship with a demo default that already works end-to-end for local development — see
-  // each method's own comment for exactly what that means and what to change for production.
-  //
-  // Everything below this block is a reference implementation, already working — you don't need
-  // to touch it, but you can override any of it if you want different behaviour.
-
-  // Called by PowerSync whenever it has local changes to send to your backend.
-  // The implementation below already works with this repo's Write API backend.
-  // No changes are needed to get started.
+  // Called by PowerSync to upload queued local changes to the write API.
   async uploadData(database: AbstractPowerSyncDatabase): Promise<void> {
     const batching = this.getBatchingConfig();
     return this.uploadTransactionBatch(database, batching);
   }
 
-  // Returns the credentials PowerSync uses for the SYNC (read) connection — a different thing
-  // from the write API auth above uploadData uses, even though the demo default below happens to
-  // fetch from the same place. See the AUTH note at the top of this file before shipping this.
+  // Returns credentials for the PowerSync sync connection, reusing the write API token.
+  // The demo token requires PowerSync to trust this backend's GET /api/auth/keys endpoint.
+  // Configure the write API verifier to accept it too. For production, use your identity
+  // provider's token retrieval in getAuthToken(). See docs/auth-verifiers.md.
   async fetchCredentials() {
     return {
       endpoint: POWERSYNC_URL,
-      // Most likely you want to replace this with whatever you're already using to get a token
-      // from your identity provider, so the sync connection and write API share the same auth.
       token: await this.getAuthToken()
     };
   }
-
-  // ===========================================================================================
 
   readonly userId: string;
   private _authToken: string | null;
 
   constructor() {
-    // USER ID: crypto.randomUUID() is built into browsers and Node >=14.17, no dependency needed.
-    // If you're targeting older React Native, crypto.randomUUID() may not exist there yet —
-    // install a polyfill (e.g. `react-native-get-random-values` or `expo-crypto`) or swap this
-    // for whatever random-id generator your platform already gives you.
+    // Provide a crypto.randomUUID() polyfill or a platform UUID generator where unavailable,
+    // including older React Native environments.
     let userId = localStorage.getItem(USER_ID_STORAGE_KEY);
     if (!userId) {
       userId = crypto.randomUUID();
@@ -130,9 +87,8 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
   }
 
   /**
-   * The bearer token for write API requests. Reuses whatever fetchCredentials last fetched for the
-   * sync connection; fetches its own if nothing has been cached yet (e.g. before the first
-   * connect), or after {@link onTransportError} invalidated a rejected token.
+   * Returns the cached token shared by sync and write requests.
+   * Fetches a token on first use or after {@link onTransportError} clears the cache.
    */
   private async getAuthToken(): Promise<string> {
     if (!this._authToken) {
@@ -167,10 +123,9 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
   }
 
   /**
-   * Called for a transient, in-band failure (the backend responded with `retryable_error`).
-   * Default behaviour waits out the backend's requested `retryAfterMs` (if any) and then throws,
-   * which causes PowerSync to retry the upload. Override to add custom logging/backoff, but a
-   * retryable error must still result in a thrown error so the transaction stays in the queue.
+   * Handles a backend `retryable_error` result. Waits for retryAfterMs, if supplied,
+   * then throws so PowerSync retains the transaction and retries the upload.
+   * Overrides must also throw to keep the transaction queued.
    */
   protected async onRetryableError(result: Extract<TransactionResult, { status: 'retryable_error' }>): Promise<never> {
     await sleep(result.retryAfterMs ?? 0);
@@ -178,14 +133,9 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
   }
 
   /**
-   * Called for a transport-level failure (network error, timeout, non-2xx response) — the backend
-   * was never reached or never returned a classified result at all. Default behaviour routes it
-   * through {@link onRetryableError} so both failure kinds share one override point and the
-   * transaction stays in the queue for retry. Override to distinguish transport failures from
-   * in-band retryable errors.
-   *
-   * A rejected/expired token ({@link AuthenticationError}) is handled here too: the cached token is
-   * dropped so the next attempt's {@link getAuthToken} call fetches a fresh one before retrying.
+   * Handles network errors, timeouts, and non-2xx responses through {@link onRetryableError}.
+   * Clears the cached token on {@link AuthenticationError} so the next upload fetches a new one.
+   * Override to handle transport failures separately from backend retryable results.
    */
   protected async onTransportError(error: unknown): Promise<never> {
     if (error instanceof AuthenticationError) {
@@ -268,11 +218,8 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
   }
 }
 
-// ------------------------------------------------------------------------------------------
-// WIRE TYPES — hand-written to match backend/openapi.yaml. Deliberately not generated: this
-// file has no build step. If the contract changes, update these by hand (or regenerate from the
-// split version's `generated/api.d.ts` and copy the shapes across).
-// ------------------------------------------------------------------------------------------
+// API types matching backend/openapi.yaml. Update these when the API contract changes;
+// this file does not use generated types.
 
 type CrudOp = 'PUT' | 'PATCH' | 'DELETE';
 
@@ -337,9 +284,7 @@ interface MessageResponseAPI {
   message: string;
 }
 
-// ------------------------------------------------------------------------------------------
 // Internal (camelCase) result shape passed to the overridable hooks above.
-// ------------------------------------------------------------------------------------------
 
 type TransactionResult =
   | { status: 'success' | 'not_attempted' }

@@ -9,8 +9,8 @@ import {
 export type IssueKind = 'invalid' | 'unsupported' | 'missing';
 
 /**
- * Shared between the Cloud and self-hosted importers. Neither an issue nor a note ever echoes a
- * configuration value: diagnostics name the field that needs attention and nothing else.
+ * Shared configuration diagnostics. Include field names and corrective instructions;
+ * omit configuration values.
  */
 export class Diagnostics {
   readonly items: Diagnostic[] = [];
@@ -48,7 +48,7 @@ export interface Transport {
   trust: ReadonlySet<string>;
 }
 
-/** Resolves which hosts may serve keys over plain HTTP. Every relaxation is named explicitly. */
+/** Resolves the hosts configured to serve keys over plain HTTP. */
 export function transport(supplements: AuthSupplements, diagnostics: Diagnostics): Transport {
   const allowLocalHttp = supplements.allowLocalHttp === true;
   if (supplements.allowLocalHttp !== undefined && typeof supplements.allowLocalHttp !== 'boolean') {
@@ -99,7 +99,7 @@ export function uriList(value: unknown): string[] | undefined {
   return undefined;
 }
 
-/** A declared replacement for the configured key endpoints, for a different network vantage point. */
+/** Reads replacement JWKS URLs reachable from this backend. */
 export function overrideUris(supplements: AuthSupplements, diagnostics: Diagnostics): string[] | undefined {
   if (supplements.jwksUriOverride === undefined) return undefined;
   const uris = uriList(supplements.jwksUriOverride);

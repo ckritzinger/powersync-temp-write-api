@@ -56,19 +56,10 @@ const applyTransaction = async (
 };
 
 /**
- * Handle a TransactionBatch: apply each transaction in its own database transaction, in
- * upload-queue order.
- *
- * This is the only write endpoint. A client uploading a single transaction sends a batch of one —
- * there is no separate single-transaction path, on the wire or in here.
- *
- * Stops at the first failure, unless `BATCH_ON_FATAL_ERROR` is `skip`, in which case a fatally failed
- * backend-directed transaction is dropped and the batch continues. Client-directed fatal
- * errors and retryable failures always end the batch.
- *
- * The response holds one result per transaction sent, matched positionally, so the client never has
- * to infer which transactions were applied. Transactions the batch never reached are reported as
- * `not_attempted` rather than omitted.
+ * Applies uploaded transactions in queue order, each in its own database transaction.
+ * Stops at the first failure unless BATCH_ON_FATAL_ERROR is skip and the failure is a
+ * backend-directed fatal error. Client-directed and retryable failures stop the batch.
+ * Returns one result per transaction in request order, including not_attempted entries.
  */
 router.post(
   '/',

@@ -35,7 +35,7 @@ export interface DeadLetterEntry {
   operationIndex?: number;
 }
 
-/** Best effort: neither synchronous throws nor rejected/unresolved promises affect the response. */
+/** Logs callback failures without changing the transaction result. Returned promises are not awaited. */
 export function notifyDeadLetter(error: FatalOperationError, context: FatalErrorContext): void {
   try {
     const pending = fatalErrorHandler.onDeadLetter({
