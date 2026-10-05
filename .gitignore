@@ -1,7 +1,4 @@
 # Local AI-agent tooling and working notes. Personal to each clone — not part of the project.
-#
-# Project documentation stays tracked: CONTEXT.md (domain glossary), docs/adr/ (architecture
-# decisions) and docs/diagrams/ are shared, and committed code links to them.
 
 # Agent configuration and skill libraries
 .agents/
@@ -19,7 +16,3 @@ CLAUDE.md
 
 # Dependencies. Lockfiles stay tracked — the Dockerfiles install with --frozen-lockfile.
 node_modules/
-
-# Staging area for stuff cut from the repo (old demo app, per-DB examples, self-hosted config) —
-# kept locally for reference during the cleanup, never committed.
-archive/

@@ -34,8 +34,10 @@ paths:
       responses:
         "200":
           description: >
-            Result. Always returns 200 — outcomes are carried by the
-            per-transaction status values in results.
+            The request was valid and processed; HTTP status alone doesn't tell you the
+            outcome. Per-transaction outcomes are reported separately, in the status
+            values under results — a transport-level 200 can still contain retryable
+            or fatal per-transaction failures.
           content:
             application/json:
               schema:

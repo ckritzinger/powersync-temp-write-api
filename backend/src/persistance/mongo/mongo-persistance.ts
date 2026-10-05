@@ -8,6 +8,14 @@ import { deadLetterQueue } from '../../dlq.js';
 import { FatalOperationError, RetryableError } from '../../errors.js';
 import type { AuthContext } from '../../auth/types.js';
 
+// A collection using Mongo's default ObjectId primary keys needs `_id` written back as a real
+// ObjectId, not the 24-char hex string PowerSync carries it as — otherwise every write/query
+// misses. A collection intentionally using string ids (e.g. client-generated UUIDs, the PowerSync
+// convention) keeps its id as-is. `ObjectId.isValid` alone also accepts 12-byte strings, so the
+// hex-length check narrows this to genuine ObjectId string representations.
+const toMongoId = (id: string): string | mongo.ObjectId =>
+  /^[0-9a-fA-F]{24}$/.test(id) && mongo.ObjectId.isValid(id) ? new mongo.ObjectId(id) : id;
+
 export const createMongoPersister = async (uri: string, mapper?: EntryMapper): Promise<Persister> => {
   console.debug('Using MongoDB Persister');
 
@@ -53,20 +61,18 @@ export const createMongoPersister = async (uri: string, mapper?: EntryMapper): P
 
           const collection = db.collection(mapped.table);
 
+          const _id = toMongoId(mapped.id);
+
           if (mapped.op == 'PUT') {
-            const doc: Record<string, unknown> = { _id: mapped.id, ...mapped.data };
-            await collection.replaceOne({ _id: mapped.id as unknown as mongo.ObjectId }, doc, {
+            const doc: Record<string, unknown> = { _id, ...mapped.data };
+            await collection.replaceOne({ _id }, doc, {
               upsert: true,
               session
             });
           } else if (mapped.op == 'PATCH') {
-            await collection.updateOne(
-              { _id: mapped.id as unknown as mongo.ObjectId },
-              { $set: mapped.data },
-              { session }
-            );
+            await collection.updateOne({ _id }, { $set: mapped.data }, { session });
           } else if (mapped.op == 'DELETE') {
-            await collection.deleteOne({ _id: mapped.id as unknown as mongo.ObjectId }, { session });
+            await collection.deleteOne({ _id }, { session });
           }
         }
 

@@ -41,6 +41,13 @@ Add a `$jsonSchema` validator to a collection to have writes to it accepted and 
 The schema snapshot is taken once at boot; a validator added or changed on a running server needs
 a restart to be picked up.
 
+**`_id` type.** `mongo-persistance.ts` writes `_id` as a real `mongo.ObjectId` when
+`mapped.id` is a 24-character hex string (Mongo's default primary key type); any other id is
+written as the raw string, for collections that intentionally use string ids (e.g. client-generated
+UUIDs, the usual PowerSync convention). This is a fixed heuristic, not driven by the discovered
+`$jsonSchema` — a collection whose `_id` validator expects a string but happens to use 24-hex-char
+values would still be coerced to `ObjectId` here.
+
 ## Patterns for a real mapper
 
 - **Renaming.** Map a PowerSync table or column name to a different one in your actual schema —

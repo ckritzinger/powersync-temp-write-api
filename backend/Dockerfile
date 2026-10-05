@@ -23,7 +23,7 @@ COPY pnpm-lock*.yaml ./
 # Install dependencies
 RUN pnpm install --frozen-lockfile
 
-# Copy the rest of the demo launcher code to the container
+# Copy the rest of the write API code to the container
 COPY / ./
 
 # Command to run the application

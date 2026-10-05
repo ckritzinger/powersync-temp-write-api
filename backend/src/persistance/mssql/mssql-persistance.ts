@@ -7,13 +7,21 @@ import { defaultMapper } from '../../mapping/default.js';
 import type { AuthContext } from '../../auth/types.js';
 
 function escapeIdentifier(identifier: string): string {
-  return `[${identifier}]`;
+  return `[${identifier.replace(/]/g, ']]')}]`;
 }
 
 export const createMSSQLPersister = async (uri: string, mapper: EntryMapper = defaultMapper): Promise<Persister> => {
   console.debug('Using MSSQL Persister');
 
   const url = new URL(uri);
+
+  // sql.ConnectionPool can take a raw string, but only in ADO/Tedious's "key=value;..."
+  // connection-string format, not a URI like ours -- so full passthrough isn't possible here.
+  // Forward the query-string options the driver actually exposes instead of dropping them.
+  const encrypt = url.searchParams.has('encrypt') ? url.searchParams.get('encrypt') === 'true' : true;
+  const trustServerCertificate = url.searchParams.has('trustServerCertificate')
+    ? url.searchParams.get('trustServerCertificate') === 'true'
+    : true;
 
   const pool = new sql.ConnectionPool({
     user: url.username,
@@ -22,8 +30,8 @@ export const createMSSQLPersister = async (uri: string, mapper: EntryMapper = de
     port: parseInt(url.port),
     database: url.pathname.split('/')[1],
     options: {
-      encrypt: true,
-      trustServerCertificate: true
+      encrypt,
+      trustServerCertificate
     }
   });
 

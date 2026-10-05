@@ -23,7 +23,7 @@ result on `req.auth`. Nothing downstream knows or cares which provider verified 
 
 1. `backend/src/auth/verifier.ts` — replace the exported `verifier` (one file).
 2. A few env vars for your provider's keys/issuer.
-3. The client's `getToken()` — where the bearer token comes from
+3. The client's `getAuthToken()` — where the bearer token comes from
    (`example-client/src/PowersyncConnector.ts`, fed into `createOpenAPIClient`).
 
 **You keep:** the `TokenVerifier` interface, `requireAuth`, the OpenAPI contract
@@ -99,7 +99,7 @@ SUPABASE_JWKS_URI=https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.jso
 SUPABASE_ISSUER=https://<project-ref>.supabase.co/auth/v1
 ```
 
-### Step 3: Point the client's `getToken()` at Supabase
+### Step 3: Point the client's `getAuthToken()` at Supabase
 
 With Supabase the user actually signs in, and the write token is the **session access
 token**:
@@ -107,14 +107,14 @@ token**:
 ```ts
 // PowersyncConnector.ts (or your connector)
 this.apiClient = createOpenAPIClient(this.config.backendUrl, {
-  getToken: async () => {
+  getAuthToken: async () => {
     const { data } = await supabase.auth.getSession();
     const token = data.session?.access_token;
     if (!token) throw new Error('Not signed in');
     return token;
   }
-  // No onUnauthorized cache-clearing needed: supabase-js refreshes the
-  // session itself, and getSession() always returns the current token.
+  // No cache-clearing needed here: supabase-js refreshes the session itself,
+  // so getSession() always returns the current token on the next call.
 });
 ```
 
@@ -198,7 +198,7 @@ AUTH_ISSUER=https://<your-frontend-api>.clerk.accounts.dev
 AUTH_AUTHORIZED_PARTIES=http://localhost:5173,https://yourapp.com
 ```
 
-### Step 3: Point the client's `getToken()` at Clerk
+### Step 3: Point the client's `getAuthToken()` at Clerk
 
 Clerk session tokens are **short-lived (~60 seconds)** and the Clerk SDK re-mints them on
 demand — so fetch per request and never cache:
@@ -206,7 +206,7 @@ demand — so fetch per request and never cache:
 ```ts
 // With @clerk/clerk-react: const { getToken } = useAuth()
 this.apiClient = createOpenAPIClient(this.config.backendUrl, {
-  getToken: async () => {
+  getAuthToken: async () => {
     const token = await clerk.session?.getToken();
     if (!token) throw new Error('Not signed in');
     return token;
@@ -245,7 +245,7 @@ devtools), curl `POST /api/data` with it, expect `200` and
 
 - **Add a login UI.** The example client invents an anonymous UUID per browser
   (`localStorage` `ps_user_id` in `PowersyncConnector.ts`). With a real provider your app needs
-  actual sign-in before any write can succeed — an unauthenticated user's `getToken()`
+  actual sign-in before any write can succeed — an unauthenticated user's `getAuthToken()`
   should throw, and uploads will (correctly) fail until sign-in.
 - **Identity changes shape.** `sub` goes from a device UUID to a real user id. Existing
   demo rows keyed to the old UUID won't correlate with the new identity.

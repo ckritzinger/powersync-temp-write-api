@@ -7,6 +7,9 @@ import type { CrudEntry, OpBody, OpResponse, TransactionResult } from '../types.
 
 const router = express.Router();
 
+/** Suggested client backoff before retrying a retryable_error. */
+const DEFAULT_RETRY_AFTER_MS = 1000;
+
 /**
  * Apply one transaction and classify the outcome.
  */
@@ -31,7 +34,9 @@ const applyTransaction = async (crud: CrudEntry[], auth: AuthContext): Promise<T
         }
       };
     } else if (e instanceof RetryableError) {
-      return { status: 'retryable_error', message: e.message };
+      // No retry-count state is tracked per-transaction, so a fixed backoff is used rather than
+      // an exponential one.
+      return { status: 'retryable_error', message: e.message, retry_after_ms: DEFAULT_RETRY_AFTER_MS };
     } else {
       // Anything else (a bug, not a classified DB/auth outcome) is fatal rather than retried forever.
       const msg = e instanceof Error ? e.message : String(e);

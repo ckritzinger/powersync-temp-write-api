@@ -1,4 +1,3 @@
-import { URL } from 'url';
 import PG from 'pg';
 import type { Persister, CrudEntry } from '../../types.js';
 import { classifyPostgresError } from './postgres-errors.js';
@@ -15,15 +14,9 @@ function escapeIdentifier(identifier: string): string {
 export const createPostgresPersister = (uri: string, mapper: EntryMapper = defaultMapper): Persister => {
   console.debug('Using Postgres Persister');
 
-  const url = new URL(uri);
-
-  const pool = new Pool({
-    host: url.hostname,
-    database: url.pathname.split('/')[1],
-    user: url.username,
-    password: url.password,
-    port: parseInt(url.port)
-  });
+  // connectionString lets pg parse the full URI itself, including query-string options
+  // (sslmode, etc.) that a manual hostname/user/password/port breakout would silently drop.
+  const pool = new Pool({ connectionString: uri });
 
   pool.on('error', (err, client) => {
     console.error('Pool connection failure to postgres:', err, client);
