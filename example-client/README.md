@@ -76,7 +76,7 @@ See [error handling](../docs/error-handling.md) before implementing release or r
 
 ## API and connector changes
 
-From the repository root, regenerate types after changing `backend/openapi.yaml`:
+From the repository root, regenerate types after changing `backend/powersync-reference-write-api.openapi.yaml`:
 
 ```bash
 pnpm --dir backend generate-types

@@ -105,7 +105,7 @@ and removed from the client upload queue. The callback does not provide durable 
 
 ## API
 
-`backend/openapi.yaml` defines `POST /api/data`. It accepts 1–50 transactions and processes
+`backend/powersync-reference-write-api.openapi.yaml` defines `POST /api/data`. It accepts 1–50 transactions and processes
 them in order, each in its own database transaction. It returns one result per submitted
 transaction, including `not_attempted` for transactions after the stopping point.
 
