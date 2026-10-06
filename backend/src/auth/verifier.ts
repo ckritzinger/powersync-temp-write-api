@@ -1,23 +1,22 @@
 import { readFile } from 'node:fs/promises';
 import { AuthConfigurationError, createTokenVerifier, resolvePowerSyncAuth } from './verifier/index.js';
-import type { AuthSupplements } from './verifier/index.js';
+import { supplementsFromEnv } from './verifier/env.js';
 import type { TokenVerifier } from './types.js';
 
-// Start with no supplements and let the diagnostics tell you what is missing. The common ones:
+// What the PowerSync export cannot tell the verifier comes from AUTH_* environment variables (see
+// supplementsFromEnv in ./verifier/env.ts), not from edits to this file: set them in the root `.env`
+// or `.env.local`. Start with none and let the diagnostics tell you what is missing. The common ones:
 
-// | Supplement | When you need it |
-// | --- | --- |
-// | `issuer` | Any generic (non-Supabase) provider. PowerSync never validates `iss`, so the expected issuer comes from your own trusted settings, not the dump. |
-// | `instanceUrl` | Generic Cloud imports: the instance URL is the default audience, and the export does not contain it. |
-// | `audience` | Instead of `instanceUrl`, when you want to state the accepted audience list explicitly. Must include the exported `additional_audiences`. |
-// | `supabaseUrl` / `provider: 'supabase'` | Supabase behind a custom domain, or when database-based detection is ambiguous. |
-// | `jwksUri` | The export has no key endpoint and you know it. It cannot override a different exported URI. |
-// | `jwksUriOverride` | The exported endpoint is written from the PowerSync service's network view (e.g. `http://backend:6060/...`) and your backend reaches those keys at a different address. |
-// | `allowLocalHttp` / `allowInsecureHttpHosts` | Plain HTTP key endpoints. Loopback, or exactly named hosts — no wildcards. |
-// | `algorithms` | Narrower asymmetric allowlist than the RS/PS/ES/EdDSA default. |
-const supplements: AuthSupplements = {
-  // Hosted Supabase Auth usually needs nothing here. See the table above.
-};
+// | Variable | Supplement | When you need it |
+// | --- | --- | --- |
+// | `AUTH_ISSUER` | `issuer` | Any generic (non-Supabase) provider. PowerSync never validates `iss`, so the expected issuer comes from your own trusted settings, not the dump. |
+// | `AUTH_INSTANCE_URL` | `instanceUrl` | Generic Cloud imports: the instance URL is the default audience, and the export does not contain it. |
+// | `AUTH_AUDIENCE` | `audience` | Instead of `AUTH_INSTANCE_URL`, when you want to state the accepted audience list explicitly (comma-separated). Must include the exported `additional_audiences`. |
+// | `AUTH_SUPABASE_URL` / `AUTH_PROVIDER=supabase` | `supabaseUrl` / `provider` | Supabase behind a custom domain, or when database-based detection is ambiguous. |
+// | `AUTH_JWKS_URI` | `jwksUri` | The export has no key endpoint and you know it. It cannot override a different exported URI. |
+// | `AUTH_JWKS_URI_OVERRIDE` | `jwksUriOverride` | The exported endpoint is written from the PowerSync service's network view (e.g. `http://backend:6060/...`) and your backend reaches those keys at a different address. |
+// | `AUTH_ALLOW_LOCAL_HTTP` / `AUTH_ALLOW_INSECURE_HTTP_HOSTS` | `allowLocalHttp` / `allowInsecureHttpHosts` | Plain HTTP key endpoints. Loopback, or exactly named hosts — no wildcards. |
+// | `AUTH_ALGORITHMS` | `algorithms` | Narrower asymmetric allowlist than the RS/PS/ES/EdDSA default. |
 
 async function loadVerifier(): Promise<TokenVerifier> {
   // The default is relative to this module; an override is absolute or relative to process cwd.
@@ -43,12 +42,12 @@ async function loadVerifier(): Promise<TokenVerifier> {
     );
   }
 
-  const result = resolvePowerSyncAuth(dump, supplements);
+  const result = resolvePowerSyncAuth(dump, supplementsFromEnv());
   if (result.status !== 'ready') {
     // Diagnostics name the offending field; they never echo configuration values.
     throw new AuthConfigurationError(
-      'Invalid PowerSync auth configuration. Check POWERSYNC_CONFIG_PATH and the supplements ' +
-        'in backend/src/auth/verifier.ts. See backend/src/auth/SETUP.md.\n\n' +
+      'Invalid PowerSync auth configuration. Check POWERSYNC_CONFIG_PATH and the AUTH_* settings ' +
+        'in the environment (.env / .env.local). See backend/src/auth/SETUP.md.\n\n' +
         result.diagnostics.map((d) => `${d.field}: ${d.message}`).join('\n')
     );
   }

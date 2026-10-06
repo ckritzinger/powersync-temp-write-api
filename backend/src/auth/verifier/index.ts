@@ -1,5 +1,6 @@
 export { resolvePowerSyncAuth } from './resolve.js';
 export { resolveSelfHostedAuth } from './self-hosted.js';
+export { supplementsFromEnv } from './env.js';
 export {
   createTokenVerifier, createSupabaseVerifier, createRemoteJwksVerifier,
   createInlinePublicKeyVerifier, createCombinedVerifier,

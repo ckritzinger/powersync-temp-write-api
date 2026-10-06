@@ -23,6 +23,10 @@ node_modules/
 # PowerSync CLI exports contain deployment configuration and secret references.
 powersync-config*.json
 
+# This machine's overrides and secrets for Docker Compose (DATABASE_URI, ...); see docker-compose.yaml.
+# The committed .env holds shared defaults only.
+.env.local
+
 # Staging area for stuff cut from the repo (old demo app, per-DB examples, self-hosted config) —
 # kept locally for reference during the cleanup, never committed.
 archive/

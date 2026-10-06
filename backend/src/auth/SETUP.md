@@ -46,38 +46,54 @@ connection, verify separately that your PowerSync instance accepts those tokens 
 
 ### Supplements
 
-Edit the existing `supplements` object in `backend/src/auth/verifier.ts`.
+Supplements are environment variables, not source edits. Set them in the root `.env` (shared
+defaults) or `.env.local` (this machine; gitignored), or in `backend/.env` when running on the host.
 For a generic provider, for example:
 
-```ts
-const supplements: AuthSupplements = {
-  issuer: 'https://issuer.example.com',
-  instanceUrl: 'https://your-instance.powersync.example.com'
-};
+```sh
+AUTH_ISSUER=https://issuer.example.com
+AUTH_INSTANCE_URL=https://your-instance.powersync.example.com
 ```
 
 Use your provider's actual issuer and your actual PowerSync instance URL. Instead of
-`instanceUrl`, you can supply an `audience` array containing the intended accepted audiences,
-including any exported `additional_audiences`.
+`AUTH_INSTANCE_URL`, you can set `AUTH_AUDIENCE` to a comma-separated list of the intended
+accepted audiences, including any exported `additional_audiences`.
 
 Standard hosted Supabase configurations usually need no supplements. For a custom domain
-or ambiguous project detection, supply `provider: 'supabase'` and `supabaseUrl` as directed by
-the resolver. See the full supplement table in `verifier.ts`.
+or ambiguous project detection, set `AUTH_PROVIDER=supabase` and `AUTH_SUPABASE_URL` as directed
+by the resolver. Unset or blank variables are simply not supplied.
+
+| Variable | Supplement |
+| --- | --- |
+| `AUTH_ISSUER` | `issuer` |
+| `AUTH_AUDIENCE` | `audience` (comma-separated) |
+| `AUTH_INSTANCE_URL` | `instanceUrl` |
+| `AUTH_SUPABASE_URL` | `supabaseUrl` |
+| `AUTH_PROVIDER` | `provider`: `supabase` or `generic` |
+| `AUTH_JWKS_URI` | `jwksUri` |
+| `AUTH_JWKS_URI_OVERRIDE` | `jwksUriOverride` (comma-separated) |
+| `AUTH_ALGORITHMS` | `algorithms` (comma-separated) |
+| `AUTH_ALLOW_LOCAL_HTTP` | `allowLocalHttp`: `true` or `false` |
+| `AUTH_ALLOW_INSECURE_HTTP_HOSTS` | `allowInsecureHttpHosts` (comma-separated) |
+
+A value the loader cannot interpret (such as `AUTH_ALLOW_LOCAL_HTTP=yes`) stops startup with a
+message naming the variable. The table of when each is needed is in `verifier.ts`; the parsing is
+in `verifier/env.ts`. Restart the backend after changing any of them.
 
 For JWKS URLs, distinguish two settings:
 
-- `jwksUri` supplies a missing endpoint; it cannot conflict with the exported endpoint.
-- `jwksUriOverride` replaces remote endpoints when the backend needs a different address.
+- `AUTH_JWKS_URI` supplies a missing endpoint; it cannot conflict with the exported endpoint.
+- `AUTH_JWKS_URI_OVERRIDE` replaces remote endpoints when the backend needs a different address.
   It leaves inline public keys unchanged.
 
-HTTPS is required by default. For local development, `allowLocalHttp: true` permits loopback
-HTTP endpoints. Other HTTP hosts require exact names in `allowInsecureHttpHosts`.
+HTTPS is required by default. For local development, `AUTH_ALLOW_LOCAL_HTTP=true` permits
+loopback HTTP endpoints. Other HTTP hosts require exact names in `AUTH_ALLOW_INSECURE_HTTP_HOSTS`.
 
 ## File paths and startup
 
 | Run mode | Environment file | Default auth file |
 | --- | --- | --- |
-| Docker Compose | Root `.env`, for Compose interpolation | `backend/powersync-config.json` on the host |
+| Docker Compose | Root `.env`, then `.env.local` (both loaded into the container; `.env` alone also feeds Compose interpolation) | `backend/powersync-config.json` on the host |
 | `pnpm --dir backend dev` or `start` | `backend/.env` | `backend/powersync-config.json` |
 
 For Compose, `POWERSYNC_CONFIG_PATH` in the root `.env` selects an absolute host path. Compose
@@ -112,19 +128,17 @@ For the manual HTTP checks, create `backend/powersync-config.json` with this con
 ```
 
 This is a local test configuration using the Cloud export format, not an export from an instance.
-Set the `supplements` object in `backend/src/auth/verifier.ts` to:
+Set the supplements in the environment file for your run mode:
 
-```ts
-const supplements: AuthSupplements = {
-  issuer: 'powersync-dev',
-  audience: ['powersync-dev'],
-  allowLocalHttp: true
-};
+```sh
+AUTH_ISSUER=powersync-dev
+AUTH_AUDIENCE=powersync-dev
+AUTH_ALLOW_LOCAL_HTTP=true
 ```
 
-Set `JWT_ISSUER=powersync-dev` and `POWERSYNC_URL=powersync-dev` in the environment file for
-your run mode. Generate a signing pair with `pnpm --dir backend generate-keys` and copy both
-values into that same environment file. The loopback JWKS URL works inside the backend
+Also set `JWT_ISSUER=powersync-dev` and `POWERSYNC_URL=powersync-dev` there (the demo token
+endpoint mints with those). Generate a signing pair with `pnpm --dir backend generate-keys` and copy
+both values into that same environment file. The loopback JWKS URL works inside the backend
 container and for a local backend on port 6060. Adjust it if you change the backend's port.
 
 This setup tests writes without a sync connection. To sync with a real PowerSync instance,
@@ -155,9 +169,9 @@ Adapt `backend/src/auth/verifier.ts` as follows:
 
 1. Import `resolveSelfHostedAuth` in place of `resolvePowerSyncAuth` from `./verifier/index.js`.
 2. Keep file loading, JSON parsing, diagnostic handling, and `createTokenVerifier(result.config)`.
-3. Replace the resolver call with `resolveSelfHostedAuth(dump, supplements)`.
-4. Set `supplements` to your expected issuer, for example `{ issuer: 'https://issuer.example.com' }`.
-   Remove Cloud-only `instanceUrl`, `jwksUri`, `provider`, and `supabaseUrl` supplements.
+3. Replace the resolver call with `resolveSelfHostedAuth(dump, supplementsFromEnv())`.
+4. Set `AUTH_ISSUER` to your expected issuer, for example `https://issuer.example.com`. Leave the
+   Cloud-only `AUTH_INSTANCE_URL`, `AUTH_JWKS_URI`, `AUTH_PROVIDER` and `AUTH_SUPABASE_URL` unset.
 5. Update the loader's file-error messages to refer to your service JSON instead of a Cloud export.
    Keep the `initializeVerifier` and `verifier` exports used by the application.
 
