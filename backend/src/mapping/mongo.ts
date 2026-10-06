@@ -1,5 +1,5 @@
-import { applySchema } from '../persistance/mongo/mongo-schema.js';
-import type { TableSchema } from '../persistance/mongo/mongo-schema.js';
+import { applySchema } from '../persistence/mongo/mongo-schema.js';
+import type { TableSchema } from '../persistence/mongo/mongo-schema.js';
 import type { EntryMapper } from './types.js';
 
 /**

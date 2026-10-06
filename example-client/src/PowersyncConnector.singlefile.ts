@@ -4,16 +4,14 @@
 // It requires @powersync/web or @powersync/react-native >=1.26.0 for getCrudTransactions().
 // For the modular version, see PowersyncConnector.ts and library/powersync/.
 //
-// Set BACKEND_URL and POWERSYNC_URL below. Adjust the batch limits, request timeout, and
-// localStorage key as needed, or connect these constants to your application's configuration.
+// Set BACKEND_URL, POWERSYNC_URL and AUTH_TOKEN below. Adjust the batch limits, request timeout,
+// and localStorage key as needed, or connect these constants to your application's configuration.
 //
-// The default fetchCredentials() obtains a demo token from GET /api/auth/token and reuses it
-// for writes. Configure your PowerSync instance to trust GET /api/auth/keys for sync, and
-// configure the write API to verify the token. Replace getAuthToken() with your identity
-// provider's token retrieval for production. Sync and writes should identify the same user.
+// The default fetchCredentials() uses the fixed AUTH_TOKEN for sync and reuses it for writes.
+// The write API accepts tokens your PowerSync instance trusts. Replace fetchAuthToken() with your
+// identity provider's token retrieval. Sync and writes should identify the same user.
 //
 // Setup references:
-// https://docs.powersync.com/configuration/auth/development-tokens
 // https://docs.powersync.com/configuration/app-backend/client-side-integration#backend-connector
 // See docs/auth-verifiers.md in this repository for Supabase and Clerk examples.
 
@@ -27,7 +25,13 @@ const BACKEND_URL = 'http://localhost:6060';
 /** Your PowerSync instance's sync endpoint. */
 const POWERSYNC_URL = '';
 
-/** localStorage key used to persist the demo auth's anonymous user id across reloads. */
+/**
+ * Token for sync and writes, e.g. a session token copied from your auth provider. Replace
+ * fetchAuthToken() with your provider's token retrieval instead of hardcoding one.
+ */
+const AUTH_TOKEN = '';
+
+/** localStorage key used to persist the anonymous user id across reloads. */
 const USER_ID_STORAGE_KEY = 'ps_user_id';
 
 /** Transactions per upload request. Defaults to one transaction per attempt. */
@@ -49,9 +53,7 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
   }
 
   // Returns credentials for the PowerSync sync connection, reusing the write API token.
-  // The demo token requires PowerSync to trust this backend's GET /api/auth/keys endpoint.
-  // Configure the write API verifier to accept it too. For production, use your identity
-  // provider's token retrieval in getAuthToken(). See docs/auth-verifiers.md.
+  // The write API accepts tokens your PowerSync instance trusts. See docs/auth-verifiers.md.
   async fetchCredentials() {
     return {
       endpoint: POWERSYNC_URL,
@@ -74,16 +76,12 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
     this._authToken = null;
   }
 
+  // Replace with your auth provider's session token (e.g. Supabase `session.access_token`).
   private async fetchAuthToken(): Promise<string> {
-    const tokenEndpoint = 'api/auth/token';
-    const res = await fetch(`${BACKEND_URL}/${tokenEndpoint}?user_id=${this.userId}`);
-
-    if (!res.ok) {
-      throw new Error(`Received ${res.status} from ${tokenEndpoint}: ${await res.text()}`);
+    if (!AUTH_TOKEN) {
+      throw new Error('No auth token. Set AUTH_TOKEN or replace fetchAuthToken().');
     }
-
-    const { token } = await res.json();
-    return token;
+    return AUTH_TOKEN;
   }
 
   /**
@@ -148,7 +146,7 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
 
   /**
    * POST /api/data via plain fetch — no openapi-fetch, no generated client. Every non-2xx response
-   * this backend returns (400/401/500) is `{ message }` (see backend/openapi.yaml); 401/403 become
+   * this backend returns (400/401/500) is `{ message }` (see backend/powersync-reference-write-api.openapi.yaml); 401/403 become
    * an {@link AuthenticationError} so onTransportError can clear the cached token and retry.
    */
   private async postTransactionBatch(body: TransactionBatchAPI): Promise<TransactionBatchResponseAPI> {
@@ -218,7 +216,7 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
   }
 }
 
-// API types matching backend/openapi.yaml. Update these when the API contract changes;
+// API types matching backend/powersync-reference-write-api.openapi.yaml. Update these when the API contract changes;
 // this file does not use generated types.
 
 type CrudOp = 'PUT' | 'PATCH' | 'DELETE';

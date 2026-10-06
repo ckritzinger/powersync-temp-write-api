@@ -11,6 +11,8 @@ export type BatchingConfig = {
 export type DemoConfig = {
   backendUrl: string;
   powersyncUrl: string;
+  /** Token for sync and writes; replace with your auth provider's session token. */
+  authToken: string;
   /** `null` uploads one transaction per attempt, which is the default. */
   batching: BatchingConfig | null;
   /** Abort a write API request that takes longer than this. */
@@ -47,6 +49,7 @@ export const readDemoConfig = (): DemoConfig => {
   return {
     backendUrl: import.meta.env.VITE_BACKEND_URL,
     powersyncUrl: import.meta.env.VITE_POWERSYNC_URL,
+    authToken: import.meta.env.VITE_POWERSYNC_TOKEN ?? '',
     batching: readBatchingConfig(),
     requestTimeoutMs:
       Number.isInteger(requestTimeoutMs) && requestTimeoutMs > 0 ? requestTimeoutMs : DEFAULT_REQUEST_TIMEOUT_MS

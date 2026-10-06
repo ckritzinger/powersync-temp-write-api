@@ -1,7 +1,7 @@
 import config from '../../config.js';
 import { fatalErrorHandler, notifyDeadLetter, type FatalErrorContext } from '../fatal-error-handler.js';
 import express, { type Request, type Response } from 'express';
-import { getPersister } from '../persistance/persister.js';
+import { getPersister } from '../persistence/persister.js';
 import { authorizer } from '../auth/authorizer.js';
 import { FatalOperationError, RetryableError } from '../errors.js';
 import type { AuthContext } from '../auth/types.js';

@@ -60,8 +60,6 @@ Select Node 24 explicitly; backend/.nvmrc currently pins an older version.
 
         DATABASE_TYPE=postgres
         DATABASE_URI=postgres://postgres:adopterpw@host.docker.internal:5433/adopter
-        POWERSYNC_URL=powersync-dev
-        JWT_ISSUER=powersync-dev
         BATCH_ON_FATAL_ERROR=stop
 
     Use Docker Desktop's host.docker.internal here. Other Docker environments need
@@ -90,13 +88,11 @@ Select Node 24 explicitly; backend/.nvmrc currently pins an older version.
 
 4. WRITES AND FAILURE RESULTS
 
-[ ] Obtain a demo token and confirm that the demo JWKS is available:
+[ ] Sign in as a test user with your provider and copy its session token:
 
-        TOKEN=$(curl -fsS 'http://localhost:6060/api/auth/token?user_id=manual' \
-          | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')
-        curl -fsS http://localhost:6060/api/auth/keys
+        TOKEN='paste-a-current-token-here'
 
-    Expected: a JWKS object with a keys array. Do not publish the token.
+    Do not publish the token.
 
 [ ] Write a row:
 
@@ -150,8 +146,7 @@ Select Node 24 explicitly; backend/.nvmrc currently pins an older version.
 
 [ ] Confirm the default authorizer permits another user to delete the original row:
 
-        TOKEN2=$(curl -fsS 'http://localhost:6060/api/auth/token?user_id=someone-else' \
-          | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')
+        TOKEN2='paste-a-token-for-a-second-user'
         curl -s -X POST http://localhost:6060/api/data \
           -H "Authorization: Bearer $TOKEN2" -H 'Content-Type: application/json' \
           -d '{"transactions":[{"crud":[{"op":"DELETE","table":"widgets","id":"11111111-1111-1111-1111-111111111111"}]}]}'
@@ -252,25 +247,11 @@ force-recreate for environment changes. Keep the required auth file mounted.
     point POWERSYNC_CONFIG_PATH at its absolute host path; recreate the container.
     Expected: Cannot start. with an invalid-JSON message. Restore the original path.
 
-[ ] With loopback JWKS verification configured, blank both signing key values and recreate:
+[ ] Confirm the backend does not issue tokens:
 
-        docker compose up -d --force-recreate backend
-        TOKEN=$(curl -fsS 'http://localhost:6060/api/auth/token?user_id=manual' \
-          | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')
-        docker compose logs backend
+        curl -i http://localhost:6060/api/auth/token
 
-    Expected: the first token request triggers the temporary-key warning.
-
-        docker compose restart backend
-
-    Wait for the root route to respond, then submit the old token with a valid body:
-
-        curl -i -X POST http://localhost:6060/api/data \
-          -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-          -d '{"transactions":[{"crud":[]}]}'
-
-    Expected: 401 because the new process generates a different key when JWKS is requested.
-    Restore both persistent keys and recreate the container.
+    Expected: HTTP 404.
 
 
 TEARDOWN

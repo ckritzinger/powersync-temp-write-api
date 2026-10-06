@@ -7,11 +7,10 @@
   "scripts": {
     "start": "tsx index.ts",
     "dev": "tsx watch index.ts",
-    "generate-keys": "tsx scripts/generate-keys.ts",
     "format": "prettier --write .",
     "check": "tsc -b",
     "test": "vitest run",
-    "generate-types": "openapi-typescript ./openapi.yaml -o src/generated/api.ts && openapi-typescript ./openapi.yaml -o ../example-client/src/generated/api.d.ts"
+    "generate-types": "openapi-typescript ./powersync-reference-write-api.openapi.yaml -o src/generated/api.ts && openapi-typescript ./powersync-reference-write-api.openapi.yaml -o ../example-client/src/generated/api.d.ts"
   },
   "dependencies": {
     "dotenv": "^16.3.1",
