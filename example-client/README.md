@@ -30,6 +30,7 @@ The modular connector reads these variables through `import.meta.env`. Adapt
 | --- | --- |
 | `VITE_BACKEND_URL` | Write API base URL without a trailing slash, e.g. `http://localhost:6060` |
 | `VITE_POWERSYNC_URL` | Actual PowerSync sync endpoint |
+| `VITE_POWERSYNC_TOKEN` | Demo token for sync and writes; replace `fetchAuthToken()` in real apps |
 | `VITE_BATCH_MAX_TRANSACTIONS` | Transactions per request; use 1–50 (default 1) |
 | `VITE_BATCH_MAX_OPERATIONS` | Operation threshold for collecting transactions (default 1000) |
 | `VITE_REQUEST_TIMEOUT_MS` | Write request timeout in milliseconds (default 30000) |
@@ -55,12 +56,12 @@ import path. `fetchCredentials()` supplies the sync token; `uploadData()` sends 
 
 ## Authentication
 
-The demo `getAuthToken()` obtains and caches a token from `GET /api/auth/token`. Both sync
-and writes reuse it. Follow [the local demo setup](../backend/src/auth/SETUP.md#local-demo-authentication)
-for HTTP-only testing. For a sync connection, PowerSync must also trust the demo keys and
-accept the token's audience. A write API success alone does not verify sync configuration.
+The backend does not issue tokens. It accepts tokens signed by the provider your PowerSync
+instance trusts. The demo `fetchAuthToken()` returns a fixed token (`VITE_POWERSYNC_TOKEN`, or
+`AUTH_TOKEN` in the single-file connector), such as a session token copied from your provider.
+Both sync and writes reuse it.
 
-For a provider integration, edit the private `getAuthToken()` method in your copied connector.
+For a provider integration, edit the private `fetchAuthToken()` method in your copied connector.
 See [Supabase and Clerk](../docs/auth-verifiers.md). If using different tokens for sync and writes,
 also adapt `fetchCredentials()`, keeping the same user ID in both tokens.
 

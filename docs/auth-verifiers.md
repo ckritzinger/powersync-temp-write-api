@@ -172,15 +172,11 @@ Remove the demo token method and cache. If configuring `createOpenAPIClient` dir
 callback option is named `getAuthToken`, and `timeoutMs` controls write request timeouts.
 These retrieval methods are private, so edit your copied connector rather than subclassing them.
 
-## Authorization and demo endpoints
+## Authorization
 
 A valid token establishes identity. Add [authorization checks](authorization.md) and configure
 PowerSync sync streams or rules for that same user ID. Do not grant permissions from
 user-editable profile claims such as Supabase `user_metadata`.
-
-`GET /api/auth/token` accepts a caller-supplied user ID without authentication. Remove or
-replace that route in production; it is not a secure token-exchange implementation.
-Provider integrations above do not need either demo auth endpoint.
 
 ## Verification
 

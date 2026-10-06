@@ -27,8 +27,8 @@ app.use(
     apiSpec: path.join(__dirname, 'powersync-reference-write-api.openapi.yaml'),
     validateRequests: true,
     validateResponses: false,
-    // The liveness probe and auth routes are outside the OpenAPI contract.
-    ignorePaths: /^\/$|^\/api\/auth(\/|$)/
+    // The liveness probe is outside the OpenAPI contract.
+    ignorePaths: /^\/$/
   })
 );
 

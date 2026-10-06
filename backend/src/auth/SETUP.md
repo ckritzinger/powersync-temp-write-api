@@ -4,8 +4,8 @@ The default `backend/src/auth/verifier.ts` reads a PowerSync Cloud JSON export, 
 its authentication settings, and builds a verifier. It may need additional trusted
 settings, such as the expected issuer or audience.
 
-Authentication configuration is separate from the demo signing keys. The API does not
-accept tokens from `/api/auth/token` merely because it issued them.
+The backend does not issue tokens. It accepts only tokens signed by keys this configuration
+trusts, normally the same provider your PowerSync instance trusts.
 
 ## Choose an integration
 
@@ -15,7 +15,6 @@ accept tokens from `/api/auth/token` merely because it issued them.
   The default loader does not read YAML or detect self-hosted configuration automatically.
 - **Custom provider:** preserve the startup and request exports when replacing the verifier.
   See [Supabase and Clerk integration](../../../docs/auth-verifiers.md).
-- **Local HTTP testing:** use the demo configuration below. It requires no PowerSync instance.
 
 Use Node.js 24 and pnpm 9 for local development and tests. Install backend dependencies
 with `pnpm --dir backend install` from the repository root. The export commands also require
@@ -96,42 +95,6 @@ Startup calls `initializeVerifier()` before listening. Invalid configuration pro
 `Cannot start.` and setup instructions. Remote JWKS endpoints are contacted on demand during
 verification, so startup does not test their availability. Configuration and inline keys are
 cached per process; restart after changing them. Remote keys refresh according to the cache policy.
-
-## Local demo authentication
-
-For the manual HTTP checks, create `backend/powersync-config.json` with this content:
-
-```json
-{
-  "config": {
-    "client_auth": {
-      "jwks_uri": "http://127.0.0.1:6060/api/auth/keys"
-    }
-  }
-}
-```
-
-This is a local test configuration using the Cloud export format, not an export from an instance.
-Set the `supplements` object in `backend/src/auth/verifier.ts` to:
-
-```ts
-const supplements: AuthSupplements = {
-  issuer: 'powersync-dev',
-  audience: ['powersync-dev'],
-  allowLocalHttp: true
-};
-```
-
-Set `JWT_ISSUER=powersync-dev` and `POWERSYNC_URL=powersync-dev` in the environment file for
-your run mode. Generate a signing pair with `pnpm --dir backend generate-keys` and copy both
-values into that same environment file. The loopback JWKS URL works inside the backend
-container and for a local backend on port 6060. Adjust it if you change the backend's port.
-
-This setup tests writes without a sync connection. To sync with a real PowerSync instance,
-configure that instance to trust the demo keys and accept the token's audience. The instance
-must reach its configured JWKS URL; a cloud instance cannot use your backend's loopback URL.
-Set the client's sync URL to the real instance URL. The client's sync URL and the token's
-`aud` are separate settings, even when they have the same value.
 
 ## Self-hosted PowerSync
 

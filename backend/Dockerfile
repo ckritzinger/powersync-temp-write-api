@@ -4,11 +4,7 @@ FROM node:20
 ENV DATABASE_URI=
 # Either 'mongodb', 'postgres', 'mssql' or 'mysql'. This defaults to Postgres
 ENV DATABASE_TYPE=
-ENV POWERSYNC_PRIVATE_KEY=
-ENV POWERSYNC_PUBLIC_KEY=
-ENV POWERSYNC_URL=
 ENV PORT=
-ENV JWT_ISSUER=
 
 # Set the working directory inside the container
 
