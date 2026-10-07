@@ -5,7 +5,7 @@ Postgres database and the local demo auth configuration. These checks do not req
 a PowerSync instance; they do not test replication or client sync.
 
 Record your starting git status and preserve any existing local changes. The steps
-below edit .env and verifier supplements. Restore only the changes made for this test.
+below edit .env (or .env.local) and the AUTH_* supplements. Restore only the changes made for this test.
 
 Prerequisites: Docker Desktop, Node.js 24, pnpm 9, curl, and Python 3.
 Select Node 24 explicitly; backend/.nvmrc currently pins an older version.
@@ -65,8 +65,17 @@ Select Node 24 explicitly; backend/.nvmrc currently pins an older version.
     Use Docker Desktop's host.docker.internal here. Other Docker environments need
     an equivalent host address. Leave POWERSYNC_CONFIG_PATH unset to use the default.
 
-[ ] Follow backend/src/auth/SETUP.md for your provider (e.g. Supabase): export
-    backend/powersync-config.json and set any supplements in verifier.ts.
+[ ] Generate signing keys and copy both printed values into the root .env:
+
+        pnpm --dir backend generate-keys
+
+[ ] Follow backend/src/auth/SETUP.md, "Local demo authentication":
+    - Create backend/powersync-config.json with the loopback JWKS URL.
+    - Set AUTH_ISSUER, AUTH_AUDIENCE, and AUTH_ALLOW_LOCAL_HTTP in the environment file.
+    - Use the powersync-dev issuer and audience shown above.
+
+    Remote keys are fetched after the API starts, so the loopback JWKS does not
+    require a second server or a pre-existing token.
 
 [ ] Start the backend with the updated code and settings:
 
@@ -252,7 +261,7 @@ TEARDOWN
         docker compose down -v --remove-orphans
         docker rm -f adopter-db
 
-[ ] Restore the environment settings, verifier supplements, and auth file changed for
+[ ] Restore the environment settings (including AUTH_* supplements) and auth file changed for
     this test. Preserve any earlier local work. Remove only temporary files you created.
 
 [ ] Record untested paths or unexpected results below.

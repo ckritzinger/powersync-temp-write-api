@@ -13,7 +13,8 @@ Use the existing verifier with a PowerSync Cloud export configured for asymmetri
 Auth. Follow [PowerSync's Supabase setup](https://docs.powersync.com/configuration/auth/supabase-auth),
 then export the configuration as described in the [setup guide](../backend/src/auth/SETUP.md).
 The resolver derives the issuer, audience, and JWKS URL for standard hosted projects.
-For custom domains or ambiguous project detection, add the supplements reported at startup.
+For custom domains or ambiguous project detection, set the `AUTH_*` supplements reported at startup
+(see the setup guide).
 
 This backend rejects legacy HS256 secrets. Projects using them must migrate to
 [Supabase signing keys](https://supabase.com/docs/guides/auth/signing-keys) before using this
@@ -47,7 +48,7 @@ There are two integration paths:
 
 - Use a [Clerk JWT template](https://clerk.com/docs/guides/sessions/jwt-templates) containing
   an `aud` accepted by PowerSync. Configure the Cloud export's JWKS and the write verifier's
-  issuer/audience supplements. This can use the default verifier and one token for sync and writes.
+  `AUTH_ISSUER`/`AUTH_AUDIENCE` supplements. This can use the default verifier and one token for sync and writes.
 - Use Clerk session tokens for writes and a separate template token for sync. This requires a
   custom write verifier because the default verifier requires `aud`.
 
@@ -56,7 +57,7 @@ There are two integration paths:
 Configure the template with the PowerSync audience and configure PowerSync to trust Clerk's
 JWKS, following [custom authentication](https://docs.powersync.com/configuration/auth/custom).
 Export that configuration and set the expected Clerk issuer and PowerSync audience in
-`backend/src/auth/verifier.ts`.
+`AUTH_ISSUER` and `AUTH_AUDIENCE` (root `.env` or `.env.local`).
 
 Replace `getAuthToken()` in the copied connector with:
 

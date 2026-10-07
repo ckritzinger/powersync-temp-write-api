@@ -23,6 +23,11 @@ Edit the root `.env` for Docker Compose:
 | `DATABASE_URI` | Required connection string for your source database |
 | `BATCH_ON_FATAL_ERROR` | `stop` (default) or `skip`; see [error handling](docs/error-handling.md) |
 
+`.env` is committed, so keep it to shared defaults. Put this machine's values and any secret, such
+as a `DATABASE_URI` with a password, in a `.env.local` beside it: it is gitignored, optional, and
+overrides `.env`. Compose passes both files to the container, so `docker compose up` needs no extra
+flags. Setting a variable in your shell no longer overrides them; use `.env.local` instead.
+
 Use the database that your PowerSync instance already replicates. Tables and columns
 must match uploaded operations unless you add [schema mapping](docs/schema-mapping.md).
 MongoDB transactions require a replica set or sharded cluster; the default MongoDB
