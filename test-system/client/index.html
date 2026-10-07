@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PowerSync Cloud test system</title>
+  </head>
+  <body>
+    <main>
+      <header><p class="eyebrow">PowerSync · manual testing</p><h1>Cloud test system</h1>
+        <p>Demo identities share the widgets stream. Local changes are optimistic; confirm persistence in Postgres and a second client.</p>
+      </header>
+      <section aria-labelledby="setup-title">
+        <h2 id="setup-title">Client setup</h2>
+        <form id="setup">
+          <label>Source database <select id="source"><option value="postgres">Postgres</option><option value="mongodb">MongoDB</option><option value="mysql">MySQL</option><option value="mssql">SQL Server</option></select></label>
+          <label>Client profile <input id="profile" name="profile" required pattern="[A-Za-z0-9_-]{1,40}" /></label>
+          <label>Demo user ID <input id="user" name="user" required maxlength="100" /></label>
+          <label>Backend URL <input id="backend" name="backend" type="url" required /></label>
+          <label>Cloud URL <input id="cloud" name="cloud" type="url" placeholder="https://your-instance.powersync.journeyapps.com" /></label>
+          <label>Transactions per upload <input id="batch-size" name="batch-size" type="number" min="1" max="50" step="1" value="1" required /></label>
+          <button id="open" type="submit">Open local database</button>
+        </form>
+        <p id="database-label">No database open.</p>
+        <p><a href="/?profile=a" target="_blank" rel="noopener">Open client A</a> · <a href="/?profile=b" target="_blank" rel="noopener">Open client B</a></p>
+        <p class="hint">Profile selects a persistent local database. To change profile or identity, reload and open the desired profile. Pending writes remain stored.</p>
+        <p class="hint">For batch testing, choose 3 transactions per upload and queue writes while disconnected. Each transaction stays atomic. The default is 1.</p>
+      </section>
+      <section aria-labelledby="status-title">
+        <h2 id="status-title">Connection and queue</h2>
+        <dl><dt>Connection</dt><dd id="connection">Database closed</dd>
+          <dt>Initial sync</dt><dd id="initial-sync">Not completed</dd>
+          <dt>Pending operations</dt><dd id="pending">—</dd>
+          <dt>Last upload attempt</dt><dd id="upload">None</dd>
+          <dt>Sync / upload error</dt><dd id="sync-error">None</dd></dl>
+        <div class="actions"><button id="connect" disabled>Connect to Cloud</button><button id="disconnect" disabled>Disconnect</button><button id="upload-once" disabled>Upload once (API only)</button></div>
+        <p class="hint">Disconnect pauses sync and automatic uploads. API-only upload tests the connector without proving Cloud sync. Queue counts are operations, not transactions.</p>
+      </section>
+      <section aria-labelledby="widgets-title">
+        <h2 id="widgets-title">Widgets</h2>
+        <form id="add"><label>Widget name <input id="name" required maxlength="200" disabled /></label><button id="add-button" disabled>Add widget</button></form>
+        <p id="empty">Open the local database to view widgets.</p>
+        <ul id="widgets"></ul>
+      </section>
+      <section aria-labelledby="failures-title">
+        <h2 id="failures-title">Transaction tests</h2>
+        <div class="actions"><button id="pair" disabled>Add two widgets atomically</button><button id="invalid" disabled>Queue invalid widget (NULL name)</button><button id="rollback" disabled>Queue valid + invalid transaction</button></div>
+        <p class="hint">NULL names fail the source NOT NULL constraint. The default backend completes fatal transactions; their local rows may remain until sync reconciles them. Confirm rollback directly in the selected source database.</p>
+        <p id="last-action" aria-live="polite">No test action yet.</p>
+      </section>
+      <section aria-labelledby="rejections-title">
+        <h2 id="rejections-title">Rejected transactions (<span id="rejection-count">0</span>)</h2>
+        <p class="hint">These writes were rejected by the backend. This history survives reload. PowerSync reconciles optimistic rows after a sync checkpoint; reconciliation can wait while disconnected or other writes are pending.</p>
+        <ul id="rejections" aria-live="polite"></ul>
+      </section>
+      <section aria-labelledby="decisions-title">
+        <h2 id="decisions-title">Transactions needing a decision</h2>
+        <p class="hint">Keep queued preserves the failed transaction and blocks later uploads. Discard transaction explicitly removes it from the upload queue on its next rejected upload. These decisions survive reload; source reconciliation requires Cloud sync.</p>
+        <ul id="decisions" aria-live="polite"></ul>
+      </section>
+      <p id="error" role="alert"></p>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

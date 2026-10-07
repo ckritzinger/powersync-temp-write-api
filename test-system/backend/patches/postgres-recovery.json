@@ -1,0 +1,12 @@
+[
+  {
+    "file": "src/persistence/postgres/postgres-persistence.ts",
+    "before": "      const client = await pool.connect();\n      try {",
+    "after": "      let client: PG.PoolClient;\n      try {\n        client = await pool.connect();\n      } catch (error) {\n        throw classifyPostgresError(error);\n      }\n      try {"
+  },
+  {
+    "file": "src/persistence/postgres/postgres-errors.ts",
+    "before": "  // Class 08 (connection), 40 (transaction rollback: deadlock/serialization failure), 53",
+    "after": "  // Node transport errors carry non-SQLSTATE codes. Retry only known transient codes;\n  // unknown driver errors still follow the existing fatal classification below.\n  const networkCodes = new Set([\n    'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE',\n    'EHOSTUNREACH', 'ENETUNREACH', 'ENETDOWN', 'ENOTFOUND', 'EAI_AGAIN'\n  ]);\n  if (networkCodes.has(code)) return new RetryableError(message);\n\n  // Class 08 (connection), 40 (transaction rollback: deadlock/serialization failure), 53"
+  }
+]

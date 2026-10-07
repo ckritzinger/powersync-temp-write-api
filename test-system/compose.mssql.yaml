@@ -1,0 +1,37 @@
+services:
+  backend:
+    environment:
+      NODE_EXTRA_CA_CERTS: /run/mssql-ca/ca.crt
+    volumes:
+      - ./.local/mssql-tls/ca.crt:/run/mssql-ca/ca.crt:ro
+    depends_on: !override
+      mssql:
+        condition: service_healthy
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-CU20-ubuntu-22.04
+    platform: linux/amd64
+    user: root
+    entrypoint: ["sh", "/fixture/start.sh"]
+    env_file: [.local/mssql.env]
+    environment:
+      ACCEPT_EULA: 'Y'
+      MSSQL_PID: Developer
+      MSSQL_AGENT_ENABLED: 'true'
+    mem_limit: 3g
+    ports:
+      - "127.0.0.1:${MSSQL_PORT:-5434}:1433"
+    volumes:
+      - mssql-data:/var/opt/mssql
+      - ./database/mssql:/fixture:ro
+      - ./.local/mssql-tls:/test-tls:ro
+    networks:
+      default:
+        ipv4_address: ${MSSQL_DB_IP:-172.29.77.8}
+    healthcheck:
+      test: ["CMD-SHELL", "SQLCMDPASSWORD=$$MSSQL_SA_PASSWORD /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -b -Q 'SELECT 1' -o /dev/null"]
+      interval: 3s
+      timeout: 8s
+      retries: 60
+volumes:
+  mssql-data:
+    name: powersync-test-system-mssql-data

@@ -1,0 +1,6 @@
+config:
+  edition: 3
+streams:
+  widgets:
+    auto_subscribe: true
+    query: SELECT id, name FROM test_system.widgets

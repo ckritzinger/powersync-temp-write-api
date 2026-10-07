@@ -1,0 +1,46 @@
+[
+  {
+    "before": "// Configuration\n",
+    "after": "import { clientConfig } from '../../client/src/config';\n\n// Configuration\n"
+  },
+  {
+    "before": "const BACKEND_URL = 'http://localhost:6060';",
+    "after": "const BACKEND_URL = clientConfig.backendUrl;"
+  },
+  {
+    "before": "const POWERSYNC_URL = '';",
+    "after": "const POWERSYNC_URL = clientConfig.cloudUrl;"
+  },
+  {
+    "before": "const USER_ID_STORAGE_KEY = 'ps_user_id';",
+    "after": "const USER_ID_STORAGE_KEY = clientConfig.userStorageKey;"
+  },
+  {
+    "before": "const AUTH_TOKEN = '';",
+    "after": "// Test fixture tokens are fetched from the isolated auth gateway."
+  },
+  {
+    "before": "  private async fetchAuthToken(): Promise<string> {\n    if (!AUTH_TOKEN) {\n      throw new Error('No auth token. Set AUTH_TOKEN or replace fetchAuthToken().');\n    }\n    return AUTH_TOKEN;\n  }",
+    "after": "  private async fetchAuthToken(): Promise<string> {\n    const response = await fetch(`${BACKEND_URL}/api/auth/token?user_id=${encodeURIComponent(this.userId)}`, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });\n    if (!response.ok) throw new Error('Test identity provider could not issue a token.');\n    const { token } = await response.json();\n    if (typeof token !== 'string' || !token) throw new Error('Invalid test identity provider response.');\n    return token;\n  }"
+  },
+  {
+    "before": "  protected async onFatalTransaction(",
+    "after": "  // Fixture observer: record backend-handled rejection without changing its completion decision.\n  protected async onBackendFatalTransaction(transaction: CrudTransaction, result: Extract<TransactionResult, { status: 'fatal_error' }>): Promise<void> {}\n\n  protected async onFatalTransaction("
+  },
+  {
+    "before": "      (result) => this.onRetryableError(result)\n",
+    "after": "      (result) => this.onRetryableError(result),\n      (index, result) => this.onBackendFatalTransaction(batch[index], result)\n"
+  },
+  {
+    "before": "  onRetryable: (result: Extract<TransactionResult, { status: 'retryable_error' }>) => Promise<never>\n",
+    "after": "  onRetryable: (result: Extract<TransactionResult, { status: 'retryable_error' }>) => Promise<never>,\n  onBackendFatal: (index: number, result: Extract<TransactionResult, { status: 'fatal_error' }>) => Promise<void>\n"
+  },
+  {
+    "before": "        boundary = index;\n        continue;\n      }\n      if (result?.status === 'retryable_error')",
+    "after": "        await onBackendFatal(index, result);\n        boundary = index;\n        continue;\n      }\n      if (result?.status === 'retryable_error')"
+  },
+  {
+    "before": "        'content-type': 'application/json',",
+    "after": "        'content-type': 'application/json',\n        'x-test-system-source': clientConfig.source,"
+  }
+]

@@ -1,0 +1,29 @@
+services:
+  backend:
+    volumes:
+      - ./.local/mongo-tls/ca.crt:/run/mongo-tls/ca.crt:ro
+    depends_on: !override
+      mongodb:
+        condition: service_healthy
+  mongodb:
+    image: mongo:7.0.16
+    entrypoint: ["sh", "/fixture/start.sh"]
+    env_file: [.local/mongodb.env]
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:27017"
+    volumes:
+      - mongodb-data:/data/db
+      - ./database/mongodb:/fixture:ro
+      - ./.local/mongo-tls:/test-tls:ro
+      - ./.local/mongodb-keyfile:/test-keyfile:ro
+    networks:
+      default:
+        ipv4_address: ${MONGODB_DB_IP:-172.29.77.6}
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--tls", "--tlsCAFile", "/run/mongo-tls/ca.crt", "--eval", "quit(db.adminCommand({ping:1}).ok ? 0 : 1)"]
+      interval: 2s
+      timeout: 5s
+      retries: 45
+volumes:
+  mongodb-data:
+    name: powersync-test-system-mongodb-data

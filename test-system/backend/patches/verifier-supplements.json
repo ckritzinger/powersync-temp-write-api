@@ -1,0 +1,5 @@
+{
+  "file": "src/auth/verifier.ts",
+  "before": "const supplements: AuthSupplements = {\n  // Hosted Supabase Auth usually needs nothing here. See the table above.\n};",
+  "after": "const supplements: AuthSupplements = {\n  issuer: process.env.JWT_ISSUER,\n  instanceUrl: process.env.POWERSYNC_URL\n};"
+}

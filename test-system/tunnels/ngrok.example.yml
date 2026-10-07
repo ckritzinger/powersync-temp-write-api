@@ -1,0 +1,15 @@
+# Reference template. tunnels:configure generates .local/ngrok.yml from runtime ports.
+version: "2"
+authtoken: REPLACE_WITH_YOUR_TEST_NGROK_AUTHTOKEN
+web_addr: 127.0.0.1:4041
+update_check: false
+log: false
+tunnels:
+  powersync-test-system-api:
+    proto: http
+    addr: 127.0.0.1:6061
+    schemes: [https]
+    inspect: false
+  powersync-test-system-db:
+    proto: tcp
+    addr: 127.0.0.1:5433

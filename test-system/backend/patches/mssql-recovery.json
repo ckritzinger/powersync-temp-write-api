@@ -1,0 +1,12 @@
+[
+  {
+    "file": "src/persistence/mssql/mssql-persistence.ts",
+    "before": "      encrypt: true,\n      trustServerCertificate: true",
+    "after": "      encrypt: url.searchParams.get('encrypt') !== 'false',\n      trustServerCertificate: url.searchParams.get('trustServerCertificate') === 'true'"
+  },
+  {
+    "file": "src/persistence/mssql/mssql-persistence.ts",
+    "before": "  await pool.connect();",
+    "after": "  await pool.connect().catch((error: unknown) => { throw classifyMSSQLError(error); });"
+  }
+]

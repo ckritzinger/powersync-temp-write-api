@@ -1,0 +1,9 @@
+**
+!backend/
+!backend/Dockerfile
+!.generated/
+!.generated/backend/
+!.generated/backend/**
+.generated/backend/node_modules
+.generated/backend/*.log
+.generated/backend/*.tsbuildinfo
