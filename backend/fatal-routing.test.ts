@@ -3,7 +3,7 @@ import request from 'supertest';
 import { FatalOperationError, RetryableError } from './src/errors.js';
 
 const mocks = vi.hoisted(() => ({ updateBatch: vi.fn(), authorize: vi.fn(), verify: vi.fn() }));
-vi.mock('./src/persistance/persister.js', () => ({ getPersister: async () => ({ updateBatch: mocks.updateBatch }) }));
+vi.mock('./src/persistence/persister.js', () => ({ getPersister: async () => ({ updateBatch: mocks.updateBatch }) }));
 vi.mock('./src/auth/authorizer.js', () => ({ authorizer: { authorize: mocks.authorize } }));
 vi.mock('./src/auth/verifier.js', () => ({ verifier: { verify: mocks.verify } }));
 import app from './app.js';

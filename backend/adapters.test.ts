@@ -71,15 +71,15 @@ vi.mock('mongodb', () => ({
     }
   }
 }));
-vi.mock('./src/persistance/mongo/mongo-schema.js', () => ({ discoverSchema: db.schema }));
-vi.mock('./src/persistance/persister.js', () => ({ getPersister: async () => ({ updateBatch: db.persist }) }));
+vi.mock('./src/persistence/mongo/mongo-schema.js', () => ({ discoverSchema: db.schema }));
+vi.mock('./src/persistence/persister.js', () => ({ getPersister: async () => ({ updateBatch: db.persist }) }));
 vi.mock('./src/auth/authorizer.js', () => ({ authorizer: { authorize: () => true } }));
 vi.mock('./src/auth/verifier.js', () => ({ verifier: { verify: async () => ({ sub: 'verified', claims: {} }) } }));
 import app from './app.js';
-import { createPostgresPersister } from './src/persistance/postgres/postgres-persistance.js';
-import { createMySQLPersister } from './src/persistance/mysql/mysql-persistance.js';
-import { createMSSQLPersister } from './src/persistance/mssql/mssql-persistance.js';
-import { createMongoPersister } from './src/persistance/mongo/mongo-persistance.js';
+import { createPostgresPersister } from './src/persistence/postgres/postgres-persistence.js';
+import { createMySQLPersister } from './src/persistence/mysql/mysql-persistence.js';
+import { createMSSQLPersister } from './src/persistence/mssql/mssql-persistence.js';
+import { createMongoPersister } from './src/persistence/mongo/mongo-persistence.js';
 import type { EntryMapper } from './src/mapping/types.js';
 import { defaultMapper } from './src/mapping/default.js';
 

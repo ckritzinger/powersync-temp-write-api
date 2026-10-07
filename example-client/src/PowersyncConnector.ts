@@ -25,9 +25,7 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
   }
 
   // Returns credentials for the PowerSync sync connection, reusing the write API token.
-  // The demo token requires PowerSync to trust this backend's GET /api/auth/keys endpoint.
-  // Configure the write API verifier to accept it too. For production, use your identity
-  // provider's token retrieval in getAuthToken(). See docs/auth-verifiers.md.
+  // The write API accepts tokens your PowerSync instance trusts. See docs/auth-verifiers.md.
   async fetchCredentials() {
     return {
       endpoint: this.config.powersyncUrl,
@@ -62,16 +60,13 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
     });
   }
 
+  // Replace with your auth provider's session token (e.g. Supabase `session.access_token`).
+  // The demo reads a fixed token from VITE_POWERSYNC_TOKEN.
   private async fetchAuthToken(): Promise<string> {
-    const tokenEndpoint = 'api/auth/token';
-    const res = await fetch(`${this.config.backendUrl}/${tokenEndpoint}?user_id=${this.userId}`);
-
-    if (!res.ok) {
-      throw new Error(`Received ${res.status} from ${tokenEndpoint}: ${await res.text()}`);
+    if (!this.config.authToken) {
+      throw new Error('No auth token. Set VITE_POWERSYNC_TOKEN or replace fetchAuthToken().');
     }
-
-    const { token } = await res.json();
-    return token;
+    return this.config.authToken;
   }
 
   /**

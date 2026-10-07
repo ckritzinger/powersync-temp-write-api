@@ -4,8 +4,8 @@ The default `backend/src/auth/verifier.ts` reads a PowerSync Cloud JSON export, 
 its authentication settings, and builds a verifier. It may need additional trusted
 settings, such as the expected issuer or audience.
 
-Authentication configuration is separate from the demo signing keys. The API does not
-accept tokens from `/api/auth/token` merely because it issued them.
+The backend does not issue tokens. It accepts only tokens signed by keys this configuration
+trusts, normally the same provider your PowerSync instance trusts.
 
 ## Choose an integration
 
@@ -15,7 +15,6 @@ accept tokens from `/api/auth/token` merely because it issued them.
   The default loader does not read YAML or detect self-hosted configuration automatically.
 - **Custom provider:** preserve the startup and request exports when replacing the verifier.
   See [Supabase and Clerk integration](../../../docs/auth-verifiers.md).
-- **Local HTTP testing:** use the demo configuration below. It requires no PowerSync instance.
 
 Use Node.js 24 and pnpm 9 for local development and tests. Install backend dependencies
 with `pnpm --dir backend install` from the repository root. The export commands also require

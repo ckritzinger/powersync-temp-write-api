@@ -1,6 +1,6 @@
 import app from './app.js';
 import config from './config.js';
-import { getPersister } from './src/persistance/persister.js';
+import { getPersister } from './src/persistence/persister.js';
 import { ConfigurationError } from './src/errors.js';
 import { initializeVerifier } from './src/auth/verifier.js';
 import { AuthConfigurationError } from './src/auth/verifier/index.js';

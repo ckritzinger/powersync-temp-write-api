@@ -48,27 +48,8 @@ to its absolute host path in the root `.env`. The file must exist before startin
 
 For Supabase or Clerk, see [provider integration](docs/auth-verifiers.md). Self-hosted
 PowerSync requires adapting the verifier loader as described in the setup guide.
-The demo `/api/auth/token` endpoint does not automatically configure token verification.
-
-If you use the demo token endpoint, configure these additional variables:
-
-| Variable | Meaning |
-| --- | --- |
-| `POWERSYNC_URL` | Audience placed in demo tokens; match the audience accepted by sync and writes |
-| `JWT_ISSUER` | Issuer placed in demo tokens; match the write verifier's expected issuer |
-| `POWERSYNC_PRIVATE_KEY`, `POWERSYNC_PUBLIC_KEY` | Base64-encoded private and public JWKs |
-
-Generate your own demo signing keys with:
-
-```bash
-pnpm --dir backend install
-pnpm --dir backend generate-keys
-```
-
-Copy the printed values into the root `.env`. The committed keys are public demo keys.
-If no private key is configured, the demo endpoint creates a temporary pair on its first
-use. Restarting the process then changes the key, so previously issued tokens may fail
-verification. Provider-issued tokens do not use these demo signing settings.
+The backend does not issue tokens. It only accepts tokens signed by keys your auth config
+trusts, so clients authenticate with the same provider your PowerSync instance uses.
 
 ### 3. Start the API
 
@@ -93,8 +74,7 @@ PowerSync database's `connect()` method. The connector implements:
 - `uploadData()`: sends queued local transactions to `POST /api/data`.
 
 Use a URL reachable from the client device. `localhost` refers to that device, so another
-computer or phone needs the backend's network address or a tunnel URL. If PowerSync fetches
-the demo JWKS, its service must also be able to reach `/api/auth/keys`.
+computer or phone needs the backend's network address or a tunnel URL.
 
 ## Application behavior
 
@@ -110,7 +90,7 @@ and removed from the client upload queue. The callback does not provide durable 
 
 ## API
 
-`backend/openapi.yaml` defines `POST /api/data`. It accepts 1–50 transactions and processes
+`backend/powersync-reference-write-api.openapi.yaml` defines `POST /api/data`. It accepts 1–50 transactions and processes
 them in order, each in its own database transaction. It returns one result per submitted
 transaction, including `not_attempted` for transactions after the stopping point.
 
@@ -120,14 +100,6 @@ and authentication failures use HTTP errors such as 400 and 401. Transaction out
 
 `BATCH_ON_FATAL_ERROR=skip` continues after backend-directed fatal failures. Client-directed
 fatal failures and retryable failures stop the batch. See [error handling](docs/error-handling.md).
-
-Two development endpoints are outside the OpenAPI contract:
-
-- `GET /api/auth/token`: issues a demo JWT; the optional `user_id` query parameter sets its subject.
-- `GET /api/auth/keys`: publishes the demo public signing key as JWKS.
-
-The token endpoint is unauthenticated and accepts a caller-supplied user ID. Replace or disable
-it when implementing production authentication.
 
 ## Development
 
@@ -163,4 +135,4 @@ but no Docker, running database, or live identity provider. Type generation upda
 `backend/src/generated/api.ts` and `example-client/src/generated/api.d.ts` from the OpenAPI
 spec. Run it after editing the spec.
 
-[The manual checklist](docs/test.txt) provides a separate Postgres test setup with demo auth.
+[The manual checklist](docs/test.txt) provides a separate Postgres test setup.

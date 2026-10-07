@@ -14,9 +14,7 @@ as the second argument to the persister factory:
 createPostgresPersister(uri, myCustomMapper);
 ```
 
-The factories are configured in `backend/src/persistance/persister-factories.ts`. There is no
-environment variable or config file for choosing a mapper; installing one is a source edit
-([see below](#writing-and-installing-a-custom-mapper)).
+The factories are configured in `backend/src/persistence/persister-factories.ts`.
 
 ## Default mapping
 
@@ -27,7 +25,7 @@ Replace it if your client and database schemas differ.
 
 MongoDB uses `createMongoMapper`. At startup, `discoverSchema` reads collection
 `$jsonSchema` validators through `db.listCollections()` and builds field type
-converters. See `backend/src/persistance/mongo/mongo-schema.ts`.
+converters. See `backend/src/persistence/mongo/mongo-schema.ts`.
 
 With the default MongoDB mapper, a write to a collection without a discovered validator
 fails with `SCHEMA_MISMATCH`. The error includes the original operation index, and the
@@ -141,4 +139,4 @@ failing operation, and the whole transaction is rolled back. See [error handling
 asynchronous database lookups or return writes to multiple tables or documents.
 
 Implement those operations in the relevant persister's `updateBatch` method under
-`backend/src/persistance/<database>/`, using its database connection and transaction.
+`backend/src/persistence/<database>/`, using its database connection and transaction.
