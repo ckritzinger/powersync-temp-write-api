@@ -1,0 +1,17 @@
+[
+  {
+    "file": "src/persistence/mysql/mysql-persistence.ts",
+    "before": "      const connection = await pool.getConnection();\n      try {",
+    "after": "      const connection = await pool.getConnection().catch((error: unknown) => {\n        throw classifyMySQLError(error);\n      });\n      try {"
+  },
+  {
+    "file": "src/persistence/mysql/mysql-errors.ts",
+    "before": "  1048: 'NOT_NULL_VIOLATION',",
+    "after": "  1048: 'NOT_NULL_VIOLATION',\n  1364: 'NOT_NULL_VIOLATION', // Required field omitted by a sparse SDK PUT."
+  },
+  {
+    "file": "src/persistence/mysql/mysql-errors.ts",
+    "before": "  'ECONNREFUSED',",
+    "after": "  'ECONNREFUSED',\n  'ENOTFOUND',\n  'EAI_AGAIN',"
+  }
+]

@@ -1,0 +1,6 @@
+config:
+  edition: 3
+streams:
+  widgets:
+    auto_subscribe: true
+    query: SELECT _id AS id, name FROM widgets

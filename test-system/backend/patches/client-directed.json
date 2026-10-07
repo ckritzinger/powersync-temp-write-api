@@ -1,0 +1,5 @@
+{
+  "file": "src/fatal-error-handler.ts",
+  "before": "  requiresClientHandling: () => false,",
+  "after": "  // Isolated fixture profile: exercise source validation decisions only.\n  requiresClientHandling: (error) => ['NOT_NULL_VIOLATION', 'DOCUMENT_VALIDATION_FAILURE'].includes(error.errorCode),"
+}

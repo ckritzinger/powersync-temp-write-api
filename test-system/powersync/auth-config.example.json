@@ -1,0 +1,7 @@
+{
+  "config": {
+    "client_auth": {
+      "jwks_uri": "https://YOUR-TUNNEL.ngrok.app/api/auth/keys"
+    }
+  }
+}

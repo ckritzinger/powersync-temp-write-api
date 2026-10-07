@@ -1,0 +1,12 @@
+[
+  {
+    "file": "app.ts",
+    "before": "'X-Requested-With,content-type,authorization'",
+    "after": "'X-Requested-With,content-type,authorization,x-test-system-source'"
+  },
+  {
+    "file": "app.ts",
+    "before": "app.use('/api', apiRouter);",
+    "after": "// Fixture-only: never upload one source's pending queue into another source.\napp.use('/api/data', (req: Request, res: Response, next: NextFunction) => {\n  const source = process.env.DATABASE_TYPE || 'postgres';\n  const requested = req.header('x-test-system-source');\n  if ((requested && requested !== source) || (source !== 'postgres' && !requested)) {\n    return res.status(409).json({ message: 'Test source changed. Reopen the matching source profile; pending writes were retained.' });\n  }\n  next();\n});\napp.use('/api', apiRouter);"
+  }
+]

@@ -1,0 +1,26 @@
+services:
+  backend:
+    depends_on: !override
+      mysql:
+        condition: service_healthy
+  mysql:
+    image: mysql:8.0.44
+    entrypoint: ["sh", "/fixture/start.sh"]
+    env_file: [.local/mysql.env]
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./database/mysql:/fixture:ro
+      - ./.local/mysql-tls:/test-tls:ro
+    networks:
+      default:
+        ipv4_address: ${MYSQL_DB_IP:-172.29.77.7}
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysql --protocol=socket -uroot -Nse 'SELECT 1'"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+volumes:
+  mysql-data:
+    name: powersync-test-system-mysql-data
