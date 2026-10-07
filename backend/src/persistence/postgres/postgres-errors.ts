@@ -26,6 +26,14 @@ export const classifyPostgresError = (error: unknown): Error => {
     return new FatalOperationError('SCHEMA_MISMATCH', message);
   }
 
+  // Node transport errors carry non-SQLSTATE codes. Retry only known transient codes;
+  // unknown driver errors still follow the existing fatal classification below.
+  const networkCodes = new Set([
+    'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE',
+    'EHOSTUNREACH', 'ENETUNREACH', 'ENETDOWN', 'ENOTFOUND', 'EAI_AGAIN'
+  ]);
+  if (networkCodes.has(code)) return new RetryableError(message);
+
   // Class 08 (connection), 40 (transaction rollback: deadlock/serialization failure), 53
   // (insufficient resources), 57/58 (admin shutdown/system error), or no SQLSTATE at all (raw
   // driver/network error, e.g. connection reset): known-transient buckets, kept retryable.

@@ -6,6 +6,12 @@ client intervention and deliver backend-directed failures to your own storage or
 Authorization failures reach this handler before persistence starts. If a database transaction
 has started, its adapter attempts rollback before the failure reaches this handler.
 
+Postgres connection acquisition failures are classified before routing. Known transient Node
+transport failures, such as `ECONNREFUSED` and `ECONNRESET`, return `retryable_error` so the
+connector retains queued transactions during outages. Credential failures, constraints and
+unknown non-transient codes remain fatal. If acquisition fails, there is no client to roll
+back or release; transaction failures still attempt rollback and release the acquired client.
+
 The following replaces `fatalErrorHandler` in `backend/src/fatal-error-handler.ts`.
 `developerOwnedStorage` is a placeholder for your storage integration; supply its import and
 implementation. The file already declares `FatalErrorHandler`.

@@ -1,26 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
-import { FatalOperationError } from './src/errors.js';
+import { FatalOperationError, RetryableError } from './src/errors.js';
 const db = vi.hoisted(() => ({
   operation: vi.fn(),
   commit: vi.fn(),
   rollback: vi.fn(),
   schema: vi.fn(),
-  persist: vi.fn()
+  persist: vi.fn(),
+  connect: vi.fn(),
+  begin: vi.fn(),
+  release: vi.fn()
 }));
 vi.mock('pg', () => ({
   default: {
     Pool: class {
       on() {}
       async connect() {
+        await db.connect();
         return {
           query: async (sql: string) => {
             if (sql === 'COMMIT') return db.commit();
             if (sql === 'ROLLBACK') return db.rollback();
-            if (sql === 'BEGIN' || sql.startsWith('SELECT set_config')) return;
+            if (sql === 'BEGIN') return db.begin();
+            if (sql.startsWith('SELECT set_config')) return;
             return db.operation();
           },
-          release() {}
+          release: db.release
         };
       }
     }
@@ -93,6 +98,52 @@ beforeEach(() => {
   db.commit.mockReset().mockResolvedValue(undefined);
   db.rollback.mockReset().mockResolvedValue(undefined);
   db.schema.mockReset().mockResolvedValue({});
+  db.connect.mockReset().mockResolvedValue(undefined);
+  db.begin.mockReset().mockResolvedValue(undefined);
+  db.release.mockReset();
+});
+describe('Postgres connection recovery', () => {
+  it.each(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', '08006'])(
+    'retries acquisition failure %s without transaction cleanup',
+    async (code) => {
+      db.connect.mockRejectedValueOnce(Object.assign(new Error('connection unavailable'), { code }));
+      const persister = createPostgresPersister('postgres://user:pass@localhost:5432/db');
+      await expect(persister.updateBatch(batch, auth)).rejects.toBeInstanceOf(RetryableError);
+      expect(db.begin).not.toHaveBeenCalled();
+      expect(db.rollback).not.toHaveBeenCalled();
+      expect(db.release).not.toHaveBeenCalled();
+    }
+  );
+  it('keeps bad credentials fatal on acquisition', async () => {
+    db.connect.mockRejectedValueOnce(Object.assign(new Error('bad credentials'), { code: '28P01' }));
+    const persister = createPostgresPersister('postgres://user:pass@localhost:5432/db');
+    await expect(persister.updateBatch(batch, auth)).rejects.toMatchObject({ errorCode: 'UNCLASSIFIED_ERROR' });
+    expect(db.release).not.toHaveBeenCalled();
+  });
+  it('rolls back and releases when the connection resets during commit', async () => {
+    db.commit.mockRejectedValueOnce(Object.assign(new Error('connection reset'), { code: 'ECONNRESET' }));
+    const persister = createPostgresPersister('postgres://user:pass@localhost:5432/db');
+    await expect(persister.updateBatch(batch, auth)).rejects.toBeInstanceOf(RetryableError);
+    expect(db.rollback).toHaveBeenCalledOnce();
+    expect(db.release).toHaveBeenCalledOnce();
+  });
+  it('returns retryable_error through the actual API when acquiring a connection fails', async () => {
+    const { fatalErrorHandler } = await import('./src/fatal-error-handler.js');
+    const notify = vi.spyOn(fatalErrorHandler, 'onDeadLetter').mockImplementation(() => {});
+    try {
+      db.connect.mockRejectedValueOnce(Object.assign(new Error('connection refused'), { code: 'ECONNREFUSED' }));
+      db.persist.mockImplementation(createPostgresPersister('postgres://user:pass@localhost:5432/db').updateBatch);
+      const response = await request(app)
+        .post('/api/data')
+        .set('Authorization', 'Bearer test')
+        .send({ transactions: [{ crud: batch }] });
+      expect(response.status).toBe(200);
+      expect(response.body.results).toEqual([{ status: 'retryable_error', message: 'connection refused' }]);
+      expect(notify).not.toHaveBeenCalled();
+    } finally {
+      notify.mockRestore();
+    }
+  });
 });
 for (const [name, factory] of [
   ['postgres', createPostgresPersister],

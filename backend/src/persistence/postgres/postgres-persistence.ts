@@ -32,7 +32,12 @@ export const createPostgresPersister = (uri: string, mapper: EntryMapper = defau
 
   const persister: Persister = {
     updateBatch: async (batch: CrudEntry[], auth: AuthContext) => {
-      const client = await pool.connect();
+      let client: PG.PoolClient;
+      try {
+        client = await pool.connect();
+      } catch (error) {
+        throw classifyPostgresError(error);
+      }
       try {
         await client.query('BEGIN');
 
