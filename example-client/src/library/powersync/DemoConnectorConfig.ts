@@ -1,18 +1,18 @@
 import { DEFAULT_REQUEST_TIMEOUT_MS } from './OpenAPITransport';
-import type { OnFatalError } from './WriteAPIClient';
 
 /**
- * Bounds on a transaction batch, plus what the backend should do with a fatally failed transaction.
+ * Bounds on a transaction batch.
  */
 export type BatchingConfig = {
   maxTransactions: number;
   maxOperations: number;
-  onFatalError: OnFatalError;
 };
 
 export type DemoConfig = {
   backendUrl: string;
   powersyncUrl: string;
+  /** Token for sync and writes; replace with your auth provider's session token. */
+  authToken: string;
   /** `null` uploads one transaction per attempt, which is the default. */
   batching: BatchingConfig | null;
   /** Abort a write API request that takes longer than this. */
@@ -25,14 +25,8 @@ export const DEFAULT_MAX_OPERATIONS = 1000;
 
 export const DEFAULT_BATCHING_CONFIG: BatchingConfig = {
   maxTransactions: 1,
-  maxOperations: DEFAULT_MAX_OPERATIONS,
-  onFatalError: 'stop'
+  maxOperations: DEFAULT_MAX_OPERATIONS
 };
-
-// Must match backend/openapi.yaml TransactionBatch.transactions maxItems. A batch above this is
-// rejected with a 400 on every attempt, and since OpenAPITransport/PowersyncConnector treat any
-// non-auth transport error as retryable, that wedges the upload queue in an infinite retry loop.
-export const SERVER_MAX_BATCH_TRANSACTIONS = 50;
 
 export const readBatchingConfig = (): BatchingConfig | null => {
   const maxTransactions = Number(import.meta.env.VITE_BATCH_MAX_TRANSACTIONS ?? '');
@@ -41,21 +35,11 @@ export const readBatchingConfig = (): BatchingConfig | null => {
     return null;
   }
 
-  let clampedMaxTransactions = maxTransactions;
-  if (maxTransactions > SERVER_MAX_BATCH_TRANSACTIONS) {
-    console.warn(
-      `VITE_BATCH_MAX_TRANSACTIONS=${maxTransactions} exceeds the backend's cap of ${SERVER_MAX_BATCH_TRANSACTIONS} ` +
-        `transactions per batch; clamping to ${SERVER_MAX_BATCH_TRANSACTIONS} to avoid every upload being rejected.`
-    );
-    clampedMaxTransactions = SERVER_MAX_BATCH_TRANSACTIONS;
-  }
-
   const maxOperations = Number(import.meta.env.VITE_BATCH_MAX_OPERATIONS ?? '');
 
   return {
-    maxTransactions: clampedMaxTransactions,
-    maxOperations: Number.isInteger(maxOperations) && maxOperations > 0 ? maxOperations : DEFAULT_MAX_OPERATIONS,
-    onFatalError: import.meta.env.VITE_BATCH_ON_FATAL_ERROR === 'skip' ? 'skip' : 'stop'
+    maxTransactions,
+    maxOperations: Number.isInteger(maxOperations) && maxOperations > 0 ? maxOperations : DEFAULT_MAX_OPERATIONS
   };
 };
 
@@ -65,7 +49,9 @@ export const readDemoConfig = (): DemoConfig => {
   return {
     backendUrl: import.meta.env.VITE_BACKEND_URL,
     powersyncUrl: import.meta.env.VITE_POWERSYNC_URL,
+    authToken: import.meta.env.VITE_POWERSYNC_TOKEN ?? '',
     batching: readBatchingConfig(),
-    requestTimeoutMs: Number.isInteger(requestTimeoutMs) && requestTimeoutMs > 0 ? requestTimeoutMs : DEFAULT_REQUEST_TIMEOUT_MS
+    requestTimeoutMs:
+      Number.isInteger(requestTimeoutMs) && requestTimeoutMs > 0 ? requestTimeoutMs : DEFAULT_REQUEST_TIMEOUT_MS
   };
 };

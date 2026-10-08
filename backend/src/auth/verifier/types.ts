@@ -12,9 +12,8 @@ export interface AuthSupplements {
   supabaseUrl?: string;
   jwksUri?: string;
   /**
-   * Replaces the configured JWKS URIs wholesale, for a consumer whose view of the network
-   * differs from the PowerSync service's. Unlike `jwksUri`, disagreeing with the configuration
-   * is the point, so it is declared rather than reported as a conflict.
+   * Replaces the configured JWKS URIs when the backend reaches the key service at a
+   * different address. This override may differ from the exported configuration.
    */
   jwksUriOverride?: string | string[];
   /** Needed for a custom-domain Supabase endpoint without the supabase flag. */

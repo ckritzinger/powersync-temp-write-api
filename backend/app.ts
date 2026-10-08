@@ -24,12 +24,11 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 app.use(
   OpenApiValidator.middleware({
-    apiSpec: path.join(__dirname, 'openapi.yaml'),
+    apiSpec: path.join(__dirname, 'powersync-reference-write-api.openapi.yaml'),
     validateRequests: true,
     validateResponses: false,
-    // Two exemptions: the root route, which is the liveness probe and deliberately absent from
-    // the contract, and the auth routes, which predate it. Everything else is validated.
-    ignorePaths: /^\/$|^\/api\/auth(\/|$)/
+    // The liveness probe is outside the OpenAPI contract.
+    ignorePaths: /^\/$/
   })
 );
 

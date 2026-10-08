@@ -1,41 +1,59 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawn } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 /**
- * Seam: the backend process itself.
- *
- * Seam 1 (HTTP against the assembled application) cannot observe this, because the behaviour under
- * test is a refusal to reach the point where there is anything to make a request to. An adopter
- * pointing this at their own database is the most likely person to misconfigure it, and the
- * failure has to read as configuration rather than as a bug in their code.
+ * Tests startup failures in a separate process. Invalid configuration should produce
+ * setup instructions and exit before the server starts listening.
  */
 
 const backendDir = path.dirname(fileURLToPath(import.meta.url));
-const tsx = path.join(backendDir, 'node_modules', '.bin', 'tsx');
+const authFixture = path.join(backendDir, 'test-fixtures', 'auth-config.json');
+let fixturesDir: string;
+
+beforeAll(async () => {
+  fixturesDir = await mkdtemp(path.join(tmpdir(), 'powersync-boot-'));
+  await writeFile(path.join(fixturesDir, 'malformed.json'), '{"secret": "do-not-print-this",');
+  await writeFile(path.join(fixturesDir, 'invalid.json'), '{}');
+  await writeFile(path.join(fixturesDir, 'unsupported.json'), JSON.stringify({
+    config: { client_auth: { supabase_jwt_secret: 'do-not-print-this' } }
+  }));
+});
+
+afterAll(async () => {
+  await rm(fixturesDir, { recursive: true, force: true });
+});
 
 interface Boot {
   code: number | null;
   output: string;
-  /** True if it was still running when we gave up — a refusal to start should never be. */
+  /** True if it started listening or was still running when we gave up. */
   stillRunning: boolean;
 }
 
 const bootWith = (env: Record<string, string>): Promise<Boot> =>
   new Promise((resolve) => {
-    const child = spawn(tsx, ['index.ts'], {
+    const child = spawn(process.execPath, ['--import', 'tsx', 'index.ts'], {
       cwd: backendDir,
-      // A port nothing else uses, so this cannot bind over a real backend someone is running.
-      env: { ...process.env, PORT: '6098', ...env }
+      // An ephemeral port cannot collide with a real backend. Auth never uses developer config.
+      env: { ...process.env, PORT: '0', BATCH_ON_FATAL_ERROR: 'stop', POWERSYNC_CONFIG_PATH: authFixture, ...env }
     });
 
     let output = '';
-    child.stdout.on('data', (d) => (output += d));
+    let started = false;
+    child.stdout.on('data', (d) => {
+      output += d;
+      if (output.includes('Server is running')) {
+        started = true;
+        child.kill('SIGTERM');
+      }
+    });
     child.stderr.on('data', (d) => (output += d));
 
-    // Without this, a regression that DOES start the server leaves the promise pending until the
-    // suite times out, and leaks a listening process. Kill it and report that it was still up.
+    // Kill a process that has not exited by the deadline so the test cannot leave a server running.
     const deadline = setTimeout(() => {
       child.kill('SIGKILL');
       resolve({ code: null, output, stillRunning: true });
@@ -43,11 +61,58 @@ const bootWith = (env: Record<string, string>): Promise<Boot> =>
 
     child.on('close', (code) => {
       clearTimeout(deadline);
-      resolve({ code, output, stillRunning: false });
+      resolve({ code, output, stillRunning: started });
     });
   });
 
 describe('refusing to start on bad configuration', () => {
+  it.each([
+    ['missing.json', 'Cannot read'],
+    ['malformed.json', 'Invalid JSON'],
+    ['invalid.json', 'config:'],
+    ['unsupported.json', 'config.client_auth.supabase_jwt_secret:']
+  ])('reports auth configuration errors for %s before listening', async (file, diagnostic) => {
+    const { code, output, stillRunning } = await bootWith({
+      DATABASE_URI: 'postgres://u:p@127.0.0.1:5432/test',
+      DATABASE_TYPE: 'postgres',
+      POWERSYNC_CONFIG_PATH: path.join(fixturesDir, file)
+    });
+    expect(stillRunning).toBe(false);
+    expect(code).toBe(1);
+    expect(output).toContain('Cannot start.');
+    expect(output).toContain(diagnostic);
+    expect(output).toContain('POWERSYNC_CONFIG_PATH');
+    expect(output).toContain('SETUP.md');
+    expect(output).not.toContain('do-not-print-this');
+    expect(output).not.toMatch(/^\s+at .+/m);
+  });
+
+  it('starts with the test auth configuration without fetching remote keys', async () => {
+    const { output, stillRunning } = await bootWith({
+      DATABASE_URI: 'postgres://u:p@127.0.0.1:5432/test',
+      DATABASE_TYPE: 'postgres'
+    });
+    expect(stillRunning).toBe(true);
+    expect(output).toContain('Server is running');
+    expect(output).not.toContain('Cannot start.');
+  });
+
+  it('rejects an invalid fatal-error policy before database initialization', async () => {
+    const { code, output, stillRunning } = await bootWith({
+      BATCH_ON_FATAL_ERROR: 'continue',
+      DATABASE_URI: '',
+      DATABASE_TYPE: 'postgres'
+    });
+    expect(stillRunning).toBe(false);
+    expect(code).not.toBe(0);
+    expect(output).toContain('BATCH_ON_FATAL_ERROR');
+    expect(output).toContain('stop');
+    expect(output).toContain('skip');
+    expect(output).toContain('.env');
+    expect(output).not.toContain('DATABASE_URI');
+    expect(output).not.toMatch(/^\s+at .+/m);
+  }, 40000);
+
   it('explains that no connection string is configured, and exits non-zero', async () => {
     const { code, output, stillRunning } = await bootWith({
       DATABASE_URI: '',
@@ -57,10 +122,9 @@ describe('refusing to start on bad configuration', () => {
     expect(stillRunning).toBe(false);
     expect(code).not.toBe(0);
     expect(output).toContain('DATABASE_URI');
-    // The message must name the fix, not just the fault.
+    // Point the user to the configuration file.
     expect(output.toLowerCase()).toContain('.env');
-    // A raw stack trace is not a readable message. Assert on the shape of one rather than on any
-    // particular frame, so renaming a function cannot quietly make this vacuous.
+    // Match stack frames without depending on function names.
     expect(output).not.toMatch(/^\s+at .+/m);
   }, 40000);
 

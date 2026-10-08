@@ -1,80 +1,142 @@
-# Building more sophisticated schema mapping
+# Schema mapping
 
-Every persister maps each PowerSync `CrudEntry` through an `EntryMapper`
-(`backend/src/mapping/types.ts`) before writing it:
+Each persister calls an `EntryMapper` before writing a PowerSync `CrudEntry`:
 
 ```ts
 export type EntryMapper = (entry: CrudEntry) => MappedEntry | null;
 ```
 
-One entry in, one `{ table, op, id, data }` out — synchronously — or `null` to drop the operation
-entirely. It's called once per operation, inside that database's transaction loop, immediately
-before the write. Install your own by passing it as the second argument when creating a persister
-(`backend/src/persistance/persister-factories.ts` is where each database's factory is chosen):
+The mapper runs synchronously inside the database transaction. It returns one
+`{ table, op, id, data }` entry, or `null` to skip the operation. Pass a custom mapper
+as the second argument to the persister factory:
 
 ```ts
 createPostgresPersister(uri, myCustomMapper);
 ```
 
-## What ships today
+The factories are configured in `backend/src/persistence/persister-factories.ts`.
 
-**`defaultMapper`** (used by Postgres, MySQL, SQL Server) does nothing: table name and every field
-pass straight through, unrenamed and untyped. It logs an error on every call saying exactly that —
-it's fine for a PowerSync table that already matches your DB schema column-for-column, and wrong
-the moment it doesn't.
+## Default mapping
 
-**The Mongo mapper** (`createMongoMapper`, used by MongoDB) is the one non-trivial built-in
-example: at boot, `discoverSchema` (`backend/src/persistance/mongo/mongo-schema.ts`) reads each
-collection's own MongoDB `$jsonSchema` validator via `db.listCollections()` and derives a
-per-field type-coercion table from it.
+Postgres, MySQL, and SQL Server use `defaultMapper`. It preserves table and field
+names without converting or validating values, and logs this on every call. The row ID
+is taken from `entry.id` (falling back to `op_data.id`) and removed from the remaining fields.
+Replace it if your client and database schemas differ.
 
-This exists because there is no MongoDB-native equivalent of "table doesn't exist"
-to fail against the way SQL does.
+MongoDB uses `createMongoMapper`. At startup, `discoverSchema` reads collection
+`$jsonSchema` validators through `db.listCollections()` and builds field type
+converters. See `backend/src/persistence/mongo/mongo-schema.ts`.
 
-A collection with no validator configured (including one that doesn't exist yet) is treated
-strictly rather than guessed at: `mongo-persistance.ts` dead-letters the raw entry via
-`backend/src/dlq.ts` and rejects the whole transaction as `fatal_error`/`SCHEMA_MISMATCH`, rather
-than writing it through unconverted or silently dropping it.
+With the default MongoDB mapper, a write to a collection without a discovered validator
+fails with `SCHEMA_MISMATCH`. The error includes the original operation index, and the
+whole transaction is rolled back. The shared [fatal-error handler](error-handling.md)
+routes the failure. A custom mapper handles its own schema mapping.
 
-Add a `$jsonSchema` validator to a collection to have writes to it accepted and coerced again.
+Add a `$jsonSchema` validator for each collection that accepts writes through the
+default mapper. Restart the backend after adding or changing validators.
 
-The schema snapshot is taken once at boot; a validator added or changed on a running server needs
-a restart to be picked up.
+## Custom mapping
 
-**`_id` type.** `mongo-persistance.ts` writes `_id` as a real `mongo.ObjectId` when
-`mapped.id` is a 24-character hex string (Mongo's default primary key type); any other id is
-written as the raw string, for collections that intentionally use string ids (e.g. client-generated
-UUIDs, the usual PowerSync convention). This is a fixed heuristic, not driven by the discovered
-`$jsonSchema` — a collection whose `_id` validator expects a string but happens to use 24-hex-char
-values would still be coerced to `ObjectId` here.
+- **Rename tables or fields.** Return a different `table` or change the keys in `data`.
+- **Convert values.** Use a converter for fields whose JSON values differ from the
+  database type, such as timestamps or booleans. See `applySchema` in `mongo-schema.ts`.
+- **Set server-controlled fields.** Add or overwrite values such as `updated_at`.
+  For ownership fields such as `owner_id` and `created_by`, see
+  [authorization](authorization.md). The mapper does not receive the verified identity.
+- **Remove fields.** Omit fields that the database does not store or clients may not write.
 
-## Patterns for a real mapper
+## Writing and installing a custom mapper
 
-- **Renaming.** Map a PowerSync table or column name to a different one in your actual schema —
-  `defaultMapper`'s pass-through can't do this at all; your replacement just returns a different
-  `table`/key in `data`.
-- **Type coercion.** `mongo-schema.ts`'s `applySchema` is the template — a map of column name to
-  converter function, applied field-by-field. The same shape works for any database; SQL drivers
-  generally need less of it than Mongo's driver does, but timestamps and booleans are common spots
-  where the client's JSON and your column type disagree.
-- **Computed / server-stamped fields.** Add or overwrite a field the client shouldn't control —
-  `updated_at`, a normalized value, anything derived rather than client-supplied. (If what you're
-  stamping is *identity* — `owner_id`, `created_by` — see [authorization.md](./authorization.md)
-  first; that's an authorization concern wearing a mapping hat.)
-- **Dropping fields.** Return `data` without a field the client sent but your schema doesn't have,
-  or doesn't want writable.
+### What the mapper receives and must return
 
-## What this interface cannot do
+- `entry.table` is the **client** table name, exactly as the client's PowerSync schema and
+  sync streams name it. A sync stream can serve a source table under a different name
+  (`FROM todos AS expanded_todos`) or add alias columns (`title AS fake_title`); uploads use
+  those client names, which usually do not exist in the source database.
+- `entry.op_data` holds only what the client wrote. For `PATCH` that is **only the changed
+  columns**, not the whole row. For `DELETE` it is absent.
+- The row ID is `entry.id` (fall back to `op_data.id`). Return it as `id` and leave it **out of
+  `data`**: the SQL persisters take the ID from `mapped.id` and ignore an `id` key in `data`.
+- A rename is therefore a change to `table` and to the keys of `data`. If two client columns
+  can map to the same source column in one `PUT`, decide which wins; the stream may serve the
+  same value under both names.
 
-`EntryMapper` is deliberately narrow, and two things don't fit it. Don't contort a mapper to
-attempt them:
+### Do not wrap `defaultMapper`
 
-- **Fan-out.** One `CrudEntry` becomes exactly one `MappedEntry`. If a single PowerSync operation
-  needs to become writes to more than one table or document, that can't be expressed as a mapper
-  return value.
-- **Async work.** No database lookups, no foreign-key resolution, nothing that needs an
-  `await` — the signature is synchronous.
+`defaultMapper` logs an error on every call to warn that nothing is renamed or validated.
+A mapper that calls it prints that warning for every operation, even though it does map.
+Copy its few lines of ID and field handling instead.
 
-If you need either, don't fight the interface: fork the relevant persister's `updateBatch` loop
-(`backend/src/persistance/<database>/`) and do the mapping inline there, where a live
-connection/transaction for that operation already exists.
+### Example: rename a table and a column
+
+```ts
+// backend/src/mapping/renames.ts
+import type { EntryMapper } from './types.js';
+
+// Client table -> source table, and per-table client column -> source column.
+const TABLES: Record<string, { table: string; columns: Record<string, string> }> = {
+  expanded_todos: { table: 'todos', columns: { fake_title: 'title' } }
+};
+
+export const renamingMapper: EntryMapper = (entry) => {
+  const rule = TABLES[entry.table];
+  const table = rule?.table ?? entry.table;
+
+  const raw = entry.op_data ?? {};
+  const id = (entry.id ?? raw.id) as string;
+  if (entry.op === 'DELETE') return { table, op: entry.op, id, data: {} };
+
+  const { id: _discardId, ...fields } = raw;
+  if (!rule) return { table, op: entry.op, id, data: fields };
+
+  const data: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    const target = rule.columns[key] ?? key;
+    if (target !== key && target in fields) continue; // the source column's own value wins
+    data[target] = value;
+  }
+  return { table, op: entry.op, id, data };
+};
+```
+
+Return `null` to drop an operation, for example for a client-only table that has no source
+table. Skipped operations are not an error.
+
+### Installing it
+
+Factories take `(uri, mapper?)` and are stored in a record, so wrap the one you want. Edit
+`backend/src/persistance/persister-factories.ts`:
+
+```ts
+import { renamingMapper } from '../mapping/renames.js';
+
+export const factories: Record<string, PersisterFactory> = {
+  mongodb: createMongoPersister,
+  postgres: createPostgresPersister,
+  mysql: (uri) => createMySQLPersister(uri, renamingMapper),
+  mssql: createMSSQLPersister
+};
+```
+
+Rebuild the image (`docker compose up --build`) because the TypeScript is compiled into it. Each
+engine's factory needs its own change.
+
+### MongoDB
+
+Passing a mapper to `createMongoPersister` skips `discoverSchema`, so your mapper must do any
+type conversion that the default MongoDB mapper would have derived from the `$jsonSchema`
+validators.
+
+### Failures you will see without a mapper
+
+A client table or column that does not exist in the source fails as a `SCHEMA_MISMATCH` fatal
+error (for example `Table 'db.expanded_todos' doesn't exist`), reported with the index of the
+failing operation, and the whole transaction is rolled back. See [error handling](error-handling.md).
+
+## Database lookups and multiple writes
+
+`EntryMapper` supports synchronous, one-to-one transformations. It cannot perform
+asynchronous database lookups or return writes to multiple tables or documents.
+
+Implement those operations in the relevant persister's `updateBatch` method under
+`backend/src/persistence/<database>/`, using its database connection and transaction.

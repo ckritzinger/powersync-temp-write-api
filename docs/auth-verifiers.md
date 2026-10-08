@@ -1,271 +1,201 @@
-# Using your own identity provider: Supabase & Clerk
+# Supabase and Clerk authentication
 
-This guide is for adopters of this template who have a real identity provider and want the
-write API (`POST /api/data`) to accept *their* users' tokens instead of the demo's
-self-issued PowerSync token. When you're done, every write is authenticated against your
-provider — the demo's auth plumbing either disappears or shrinks to a sync-only concern.
+The write API verifies bearer tokens through `TokenVerifier` and stores `{ sub, claims }`
+on `req.auth`. Its default verifier is configured from a PowerSync Cloud export; see
+[auth setup](../backend/src/auth/SETUP.md).
 
-## How auth is pluggable
-
-The backend depends on a single interface, `TokenVerifier`
-(`backend/src/auth/types.ts`):
-
-```ts
-export interface TokenVerifier {
-  verify(token: string): Promise<{ sub: string; claims: Record<string, unknown> }>;
-}
-```
-
-`requireAuth` (`backend/src/auth/middleware.ts`) calls it on every write and puts the
-result on `req.auth`. Nothing downstream knows or cares which provider verified the token.
-
-**You swap:**
-
-1. `backend/src/auth/verifier.ts` — replace the exported `verifier` (one file).
-2. A few env vars for your provider's keys/issuer.
-3. The client's `getAuthToken()` — where the bearer token comes from
-   (`example-client/src/PowersyncConnector.ts`, fed into `createOpenAPIClient`).
-
-**You keep:** the `TokenVerifier` interface, `requireAuth`, the OpenAPI contract
-(`bearerAuth` + `401`), the `OpenAPITransport` middleware shape, and the data route.
-
-Every verifier is the same `jose` shape; providers differ on exactly two axes — **where the
-signing key comes from** and **which claim proves the token was meant for you**:
-
-| | PowerSync (demo) | Supabase | Clerk |
-|---|---|---|---|
-| Key source | backend's own in-process key | project JWKS endpoint | instance JWKS endpoint |
-| Algorithm | RS256 | ES256 (default) / RS256 | RS256 |
-| Origin claim | `aud` = PowerSync URL | `aud` = `authenticated` | no `aud` — check `azp` |
-| `sub` | demo device UUID | Supabase auth user id | Clerk user id |
-| Backend env | none | `SUPABASE_JWKS_URI`, `SUPABASE_ISSUER` | `AUTH_JWKS_URI`, `AUTH_ISSUER`, `AUTH_AUTHORIZED_PARTIES` |
-| Frontend token | reuse `fetchCredentials()` token | `supabase.auth.getSession()` | `session.getToken()` |
-| Sync token | same token | can be the same token | separate concern (see below) |
-
----
+Choose a token format accepted by both the write API and your PowerSync instance.
+If you use separate tokens for sync and writes, both must identify the same user in `sub`.
 
 ## Supabase
 
-**Prerequisites:** a Supabase project with users signing in through `supabase-js`
-(email/password, OAuth, magic link — any method). Your users' sessions carry a JWT access
-token; that token becomes the write credential.
+Use the existing verifier with a PowerSync Cloud export configured for asymmetric Supabase
+Auth. Follow [PowerSync's Supabase setup](https://docs.powersync.com/configuration/auth/supabase-auth),
+then export the configuration as described in the [setup guide](../backend/src/auth/SETUP.md).
+The resolver derives the issuer, audience, and JWKS URL for standard hosted projects.
+For custom domains or ambiguous project detection, set the `AUTH_*` supplements reported at startup
+(see the setup guide).
 
-### Step 1: Replace the verifier
+This backend rejects legacy HS256 secrets. Projects using them must migrate to
+[Supabase signing keys](https://supabase.com/docs/guides/auth/signing-keys) before using this
+verifier. Re-export the PowerSync configuration after removing legacy secret settings.
 
-Supabase signs access tokens with **asymmetric signing keys** (default ES256) and publishes
-the public keys at a JWKS endpoint. Replace the export in `backend/src/auth/verifier.ts`:
-
-```ts
-import { createRemoteJWKSet, jwtVerify } from 'jose';
-import type { TokenVerifier } from './types.js';
-
-// https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json
-const JWKS = createRemoteJWKSet(new URL(process.env.SUPABASE_JWKS_URI!));
-
-export const verifier: TokenVerifier = {
-  async verify(token) {
-    const { payload } = await jwtVerify(token, JWKS, {
-      issuer: process.env.SUPABASE_ISSUER, // https://<project-ref>.supabase.co/auth/v1
-      audience: 'authenticated'            // Supabase's aud for signed-in users
-    });
-    if (!payload.sub) {
-      throw new Error('Token has no sub claim');
-    }
-    return { sub: payload.sub, claims: payload };
-  }
-};
-```
-
-`createRemoteJWKSet` fetches and caches the keys, picks the right key by the token's `kid`
-header, and handles ES256/RS256 transparently — key rotation on the Supabase side needs no
-code change here.
-
-> **Legacy projects (HS256 shared secret):** older Supabase projects sign with a symmetric
-> `JWT secret`. Supabase now strongly recommends **against** verifying with the shared
-> secret — migrate the project to signing keys (Dashboard → JWT Keys → migrate/rotate),
-> which is zero-downtime, and use the JWKS verifier above. If you can't migrate yet, the
-> documented fallback is validating the token against the Auth server
-> (`GET <issuer>/user` with the token) rather than embedding the secret in this backend.
-
-> **Authorization note:** don't make authorization decisions from `user_metadata` claims —
-> they are user-editable. Use `sub` (and `app_metadata` if you need roles).
-
-### Step 2: Set environment variables
-
-Follow the `backend/config.ts` pattern if you prefer config over `process.env`:
-
-```
-SUPABASE_JWKS_URI=https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json
-SUPABASE_ISSUER=https://<project-ref>.supabase.co/auth/v1
-```
-
-### Step 3: Point the client's `getAuthToken()` at Supabase
-
-With Supabase the user actually signs in, and the write token is the **session access
-token**:
+In the connector you copied into your app, replace the body of `getAuthToken()` with:
 
 ```ts
-// PowersyncConnector.ts (or your connector)
-this.apiClient = createOpenAPIClient(this.config.backendUrl, {
-  getAuthToken: async () => {
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
-    if (!token) throw new Error('Not signed in');
-    return token;
-  }
-  // No cache-clearing needed here: supabase-js refreshes the session itself,
-  // so getSession() always returns the current token on the next call.
-});
+private async getAuthToken(): Promise<string> {
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw error;
+  const token = data.session?.access_token;
+  if (!token) throw new Error('Not signed in');
+  return token;
+}
 ```
 
-Remove the demo's `_authToken` caching in `PowersyncConnector.ts` — `supabase-js` owns the
-session lifecycle. A `401` still throws in `postTransactionBatch`, so the PowerSync upload
-retries; by then `supabase-js` has typically refreshed the token.
+Import your application's initialized Supabase client as `supabase`. This example uses
+[getSession](https://supabase.com/docs/reference/javascript/auth-getsession) in the client
+application to obtain a token; the write API still verifies it on the server.
 
-### Step 4: Decide how sync tokens work
-
-PowerSync supports Supabase Auth natively — the PowerSync Service can verify Supabase JWTs
-directly (enable Supabase auth on your PowerSync instance). That means `fetchCredentials()`
-can return the *same* Supabase access token for sync, and the demo's `/api/auth/token`
-endpoint (and the backend keypair) become unused. You end up with a clean one-token shape
-with a real identity behind it. See:
-https://docs.powersync.com/installation/authentication-setup/supabase-auth
-
-### Step 5: Verify
-
-```bash
-# Grab an access token from a signed-in session (browser devtools, or supabase-js)
-TOKEN=<session access_token>
-
-curl -i -X POST http://localhost:6060/api/data \
-  -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"transactions":[{"crud":[]}],"on_fatal_error":"stop"}'
-# expect 200 {"results":[{"status":"success"}]} and a backend log line:
-#   Write authenticated as <supabase user id>
-```
-
-Then run the full [verification checklist](#verification-checklist).
-
----
+Both connector versions call `getAuthToken()` for writes and from `fetchCredentials()`.
+Keep that shared path when using the same Supabase token for sync. Remove the unused demo
+`fetchAuthToken()` method, `_authToken` cache, and its reset in `onTransportError()`.
+The provider SDK manages the session. The demo UUID stored in `userId` does not establish
+identity on the backend; use the provider user ID in your application's ownership fields.
 
 ## Clerk
 
-**Prerequisites:** a Clerk application with users signing in via Clerk's components/SDK.
-Clerk session tokens are JWTs, RS256-signed, published at your instance's JWKS endpoint.
+There are two integration paths:
 
-### Step 1: Replace the verifier
+- Use a [Clerk JWT template](https://clerk.com/docs/guides/sessions/jwt-templates) containing
+  an `aud` accepted by PowerSync. Configure the Cloud export's JWKS and the write verifier's
+  `AUTH_ISSUER`/`AUTH_AUDIENCE` supplements. This can use the default verifier and one token for sync and writes.
+- Use Clerk session tokens for writes and a separate template token for sync. This requires a
+  custom write verifier because the default verifier requires `aud`.
 
-The wrinkle: Clerk session tokens carry **no `aud` claim**. Origin is proven with `azp`
-(authorized party — the origin that generated the token), which you validate against an
-allow-list. Replace the export in `backend/src/auth/verifier.ts`:
+### One template token for sync and writes
+
+Configure the template with the PowerSync audience and configure PowerSync to trust Clerk's
+JWKS, following [custom authentication](https://docs.powersync.com/configuration/auth/custom).
+Export that configuration and set the expected Clerk issuer and PowerSync audience in
+`AUTH_ISSUER` and `AUTH_AUDIENCE` (root `.env` or `.env.local`).
+
+Replace `getAuthToken()` in the copied connector with:
 
 ```ts
+private async getAuthToken(): Promise<string> {
+  const token = await clerk.session?.getToken({ template: 'powersync' });
+  if (!token) throw new Error('Not signed in');
+  return token;
+}
+```
+
+`clerk` is your initialized client SDK, and `powersync` is the template name chosen in your
+application. Remove the demo token method and cache as described for Supabase. The existing
+`fetchCredentials()` will use the template token too.
+
+### Session tokens for writes
+
+For browser applications using Clerk session tokens, validate the expected issuer and allowed
+`azp` origins. See [Clerk's verification guide](https://clerk.com/docs/guides/sessions/manual-jwt-verification).
+The example below requires `azp`; applications whose tokens omit it need a policy appropriate
+to their client platform.
+
+Replace the contents of `backend/src/auth/verifier.ts` with this implementation. It preserves
+both exports required by the application: `initializeVerifier()` for startup and `verifier`
+for request middleware.
+
+```ts
+import 'dotenv/config';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { AuthConfigurationError } from './verifier/index.js';
 import type { TokenVerifier } from './types.js';
 
-// https://<your-frontend-api>.clerk.accounts.dev/.well-known/jwks.json
-const JWKS = createRemoteJWKSet(new URL(process.env.AUTH_JWKS_URI!));
+function requiredEnv(name: string): string {
+  const value = process.env[name]?.trim();
+  if (!value) throw new AuthConfigurationError(`Set ${name} in the backend environment.`);
+  return value;
+}
+
+async function loadVerifier(): Promise<TokenVerifier> {
+  const issuer = requiredEnv('AUTH_ISSUER');
+  const allowedOrigins = requiredEnv('AUTH_AUTHORIZED_PARTIES')
+    .split(',').map((value) => value.trim()).filter(Boolean);
+  if (!allowedOrigins.length) {
+    throw new AuthConfigurationError('Set AUTH_AUTHORIZED_PARTIES to the allowed browser origins.');
+  }
+  let jwksUrl: URL;
+  try {
+    jwksUrl = new URL(requiredEnv('AUTH_JWKS_URI'));
+    if (jwksUrl.protocol !== 'https:' || jwksUrl.username || jwksUrl.password) throw new Error();
+  } catch {
+    throw new AuthConfigurationError('Set AUTH_JWKS_URI to the HTTPS Clerk JWKS URL.');
+  }
+  const keys = createRemoteJWKSet(jwksUrl);
+  return {
+    async verify(token) {
+      const { payload } = await jwtVerify(token, keys, {
+        issuer,
+        algorithms: ['RS256'],
+        requiredClaims: ['exp', 'sub', 'iss', 'azp']
+      });
+      if (!payload.sub?.trim() || typeof payload.azp !== 'string' || !allowedOrigins.includes(payload.azp)) {
+        throw new Error('Invalid subject or authorized party');
+      }
+      return { sub: payload.sub, claims: payload };
+    }
+  };
+}
+
+let initialized: Promise<TokenVerifier> | undefined;
+export function initializeVerifier(): Promise<TokenVerifier> {
+  return (initialized ??= loadVerifier());
+}
 
 export const verifier: TokenVerifier = {
   async verify(token) {
-    const { payload } = await jwtVerify(token, JWKS, {
-      issuer: process.env.AUTH_ISSUER // https://<your-frontend-api>.clerk.accounts.dev
-    });
-    // Clerk has no aud; it proves origin with azp. Reject tokens minted for
-    // origins you don't recognize (CSRF protection).
-    const allowed = (process.env.AUTH_AUTHORIZED_PARTIES ?? '').split(',').filter(Boolean);
-    if (allowed.length && !allowed.includes(payload.azp as string)) {
-      throw new Error(`azp ${String(payload.azp)} not in authorized parties`);
-    }
-    if (!payload.sub) {
-      throw new Error('Token has no sub claim');
-    }
-    return { sub: payload.sub, claims: payload };
+    return (await initializeVerifier()).verify(token);
   }
 };
 ```
 
-The idiomatic alternative is `@clerk/backend`'s `verifyToken`/`authenticateRequest` with
-the `jwtKey` option (networkless) — less code and it handles `azp` natively, at the cost of
-a Clerk dependency in the backend.
+Set these values in `backend/.env` for local execution:
 
-### Step 2: Set environment variables
-
-```
+```dotenv
 AUTH_JWKS_URI=https://<your-frontend-api>.clerk.accounts.dev/.well-known/jwks.json
 AUTH_ISSUER=https://<your-frontend-api>.clerk.accounts.dev
 AUTH_AUTHORIZED_PARTIES=http://localhost:5173,https://yourapp.com
 ```
 
-### Step 3: Point the client's `getAuthToken()` at Clerk
+For Docker, add these variables to `services.backend.environment` in `docker-compose.yaml`
+and set their values in the root `.env`. Compose does not forward arbitrary root `.env` values.
+This custom verifier does not read a PowerSync export, so remove the `POWERSYNC_CONFIG_PATH`
+entry and its bind mount from Compose for this integration. Rebuild after replacing the verifier.
 
-Clerk session tokens are **short-lived (~60 seconds)** and the Clerk SDK re-mints them on
-demand — so fetch per request and never cache:
+Use separate retrieval methods in the copied connector:
 
 ```ts
-// With @clerk/clerk-react: const { getToken } = useAuth()
-this.apiClient = createOpenAPIClient(this.config.backendUrl, {
-  getAuthToken: async () => {
-    const token = await clerk.session?.getToken();
-    if (!token) throw new Error('Not signed in');
-    return token;
-  }
-});
+private async getAuthToken(): Promise<string> {
+  const token = await clerk.session?.getToken();
+  if (!token) throw new Error('Not signed in');
+  return token;
+}
+
+async fetchCredentials() {
+  const token = await clerk.session?.getToken({ template: 'powersync' });
+  if (!token) throw new Error('Not signed in');
+  return { endpoint: this.config.powersyncUrl, token };
+}
 ```
 
-As with Supabase, remove the demo's `_authToken` caching in `PowersyncConnector.ts` —
-`getToken()` already returns a fresh (or freshly minted) token each call.
+The `endpoint` expression above is for the modular connector; use `POWERSYNC_URL` in the
+single-file connector. Configure the template and PowerSync JWKS as in the one-token path.
+Remove the demo token method and cache. If configuring `createOpenAPIClient` directly, its
+callback option is named `getAuthToken`, and `timeoutMs` controls write request timeouts.
+These retrieval methods are private, so edit your copied connector rather than subclassing them.
 
-### Step 4: Decide how sync tokens work
+## Authorization
 
-Clerk tokens have no `aud`, and PowerSync sync auth expects one. Either:
+A valid token establishes identity. Add [authorization checks](authorization.md) and configure
+PowerSync sync streams or rules for that same user ID. Do not grant permissions from
+user-editable profile claims such as Supabase `user_metadata`.
 
-1. **Clerk JWT template** — define a template in the Clerk dashboard that adds an `aud`
-   (your PowerSync URL) and point your PowerSync instance's custom auth at Clerk's JWKS.
-   One identity, Clerk-issued tokens everywhere.
-2. **Keep two tokens** — the backend keeps minting its PowerSync token for sync
-   (`/api/auth/token`, now taking the *Clerk* user id as `sub` — derived from a verified
-   Clerk token, not a query param), while writes use the Clerk session token directly.
+## Verification
 
-Either way the `sub` used for sync and writes must be the same user id, or synced rows and
-written rows won't correlate. See:
-https://docs.powersync.com/installation/authentication-setup/custom
+Start the configured backend and obtain a token through your signed-in client:
 
-### Step 5: Verify
+```bash
+TOKEN='paste-a-current-token-here'
+curl -i -X POST http://localhost:6060/api/data \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"transactions":[{"crud":[]}]}'
+```
 
-Same as Supabase: grab a session token (e.g. `await window.Clerk.session.getToken()` in
-devtools), curl `POST /api/data` with it, expect `200` and
-`Write authenticated as <clerk user id>` in the backend log. Then run the full
-[verification checklist](#verification-checklist).
+With the default authorizer and a reachable database, expect HTTP 200 with
+`{"results":[{"status":"success"}]}` and a log identifying the provider's user ID.
+This empty transaction checks authentication and transaction handling without writing a row.
+If you added authorization rules, use a transaction they permit.
 
----
-
-## Things to plan for when adopting
-
-- **Add a login UI.** The example client invents an anonymous UUID per browser
-  (`localStorage` `ps_user_id` in `PowersyncConnector.ts`). With a real provider your app needs
-  actual sign-in before any write can succeed — an unauthenticated user's `getAuthToken()`
-  should throw, and uploads will (correctly) fail until sign-in.
-- **Identity changes shape.** `sub` goes from a device UUID to a real user id. Existing
-  demo rows keyed to the old UUID won't correlate with the new identity.
-- **Add per-row authorization.** The auth gate only proves *who* is writing.
-  `req.auth.sub` is attached precisely so you can add ownership checks in
-  `updateBatch`/DLQ rows without rework.
-- **Scope sync to the user.** The demo's sync rules aren't user-scoped; with real
-  identities you'll want PowerSync sync rules keyed on the same user id.
-
-## Verification checklist
-
-Whichever provider you use, the snippets above are a starting point — run these checks
-against *your* provider before trusting the swap:
-
-1. `POST /api/data` with no `Authorization` header → `401`.
-2. A real, fresh token from a signed-in user → `200 {"results":[{"status":"success"}]}`, and the backend
-   logs `Write authenticated as <your provider's user id>`.
-3. Tampered token (flip a character) and expired token → `401`, backend logs
-   `Token verification failed: ...`.
-4. If you keep the demo sync-token endpoint, `/api/auth/*` routes are still reachable
-   without a token.
-5. Kill and restore connectivity mid-session: uploads retry and succeed once the provider
-   refreshes the session (the `401` → retry path).
+Repeat with no bearer header, an expired token, a wrong issuer, and a wrong signing key;
+expect 401. For the Clerk session verifier, also test a disallowed or missing `azp`.
+Finally, verify a real write and the resulting sync update using the same user identity.

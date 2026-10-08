@@ -148,7 +148,7 @@ export function resolvePowerSyncAuth(dump: unknown, supplements: AuthSupplements
   if (override) diagnostics.note('JWKS_URI_OVERRIDDEN', 'jwksUriOverride', `The configured key endpoint was replaced by ${override.length} explicitly supplied URI(s); the issuer and audience policy is unchanged.`);
   const configuredUris = override ?? (uri ? [uri] : []);
   const sources: KeySource[] = remoteSources(configuredUris, trust.trust, diagnostics, override ? 'jwksUriOverride' : 'jwksUri');
-  // An override replaces network endpoints only; inline keys carry no network vantage point.
+  // Endpoint overrides leave inline keys unchanged.
   if (auth.jwks !== undefined) {
     const inline = inlineSource(auth.jwks, diagnostics, 'config.client_auth.jwks');
     if (inline) sources.push(inline);

@@ -1,89 +1,62 @@
-# Regeneration prompt: PowersyncConnector.singlefile.ts
+# Updating the single-file connector
 
-This file is not consumed by any tooling — it's a prompt to hand to Claude (or read yourself)
-whenever `PowersyncConnector.ts` or the files under `library/powersync/` change, so
-`PowersyncConnector.singlefile.ts` can be regenerated to match without re-deriving these design
-decisions from scratch.
+Use this prompt when the modular connector, its helpers, or `backend/powersync-reference-write-api.openapi.yaml`
+changes. This file is a maintenance reference; no tooling runs it automatically.
 
-## When to use this
+## Regeneration prompt
 
-Any time the split version's behavior, config surface, or wire contract changes:
-`PowersyncConnector.ts`, `library/powersync/WriteAPIClient.ts`,
-`library/powersync/OpenAPITransport.ts`, `library/powersync/DemoConnectorConfig.ts`,
-`library/powersync/TransactionBatching.ts`, or `backend/openapi.yaml`.
+Regenerate `example-client/src/PowersyncConnector.singlefile.ts` from:
 
-## The prompt
+- `example-client/src/PowersyncConnector.ts`
+- `example-client/src/library/powersync/WriteAPIClient.ts`
+- `example-client/src/library/powersync/OpenAPITransport.ts`
+- `example-client/src/library/powersync/DemoConnectorConfig.ts`
+- `example-client/src/library/powersync/TransactionBatching.ts`
+- `backend/powersync-reference-write-api.openapi.yaml`
 
-> Regenerate `example-client/src/PowersyncConnector.singlefile.ts` from the current state of
-> `example-client/src/PowersyncConnector.ts` and the files it imports from
-> `example-client/src/library/powersync/` (`WriteAPIClient.ts`, `OpenAPITransport.ts`,
-> `DemoConnectorConfig.ts`, `TransactionBatching.ts`), plus `backend/openapi.yaml` for the wire
-> contract. Preserve all runtime behavior exactly. Apply these fixed design decisions:
->
-> 1. **Single file, additive.** Everything lives in `PowersyncConnector.singlefile.ts`. Don't
->    touch or replace the split version — both are maintained side by side.
-> 2. **Zero dependencies beyond `@powersync/web`/`@powersync/react-native`.** No `openapi-fetch`,
->    no `uuid`, no generated `api.d.ts`, no relative imports. Exactly one `import` line, from
->    `@powersync/web`. Use plain `fetch` for all HTTP calls (auth header injection, JSON body,
->    `AbortSignal.timeout(...)` for the timeout, manual `response.ok`/status check).
-> 3. **Config via SHOUTY_CASE consts at the top of the file**, not env vars and not constructor
->    options — a copy-pasted file can't assume a bundler exposes `import.meta.env`. Mirror the
->    split version's current defaults exactly (as of writing: `MAX_TRANSACTIONS_PER_BATCH = 1`,
->    `MAX_OPERATIONS_PER_BATCH = 1000`, `ON_FATAL_ERROR = 'stop'`, `REQUEST_TIMEOUT_MS = 30_000`).
->    If `DemoConnectorConfig.ts`'s defaults changed, update the consts to match — don't reintroduce
->    the null-fallback/"unset means default" parsing logic; a const always has a value, so that
->    branch has nothing to do.
-> 4. **User id via `crypto.randomUUID()`**, not the `uuid` package. Keep a one-line comment noting
->    that older React Native needs a polyfill (`react-native-get-random-values` or `expo-crypto`)
->    for `crypto.randomUUID()` to exist at all.
-> 5. **Hand-written literal types, not generated ones.** Re-derive the wire shapes
->    (`CrudEntryAPI`, `CrudTransactionAPI`, `TransactionBatchAPI`, `TransactionResponseAPI`,
->    `TransactionBatchResponseAPI`, the `ErrorCode` union, etc.) from the current
->    `backend/openapi.yaml`, as literal unions/interfaces — not `string`/`any`. This file has no
->    codegen step, but "no codegen" doesn't mean "no type safety": keep it as precise as hand-typing
->    allows.
-> 6. **Keep the `AuthenticationError` distinction.** 401/403 responses throw a dedicated
->    `AuthenticationError` (not a generic `Error`) so `onTransportError` can clear the cached token
->    and force a refetch on retry. Every other non-2xx response is `{ message }` per
->    `backend/openapi.yaml` — parse and surface that message in a generic `Error`.
-> 7. **`AppSchema.ts` is out of scope.** The single file is the connector only, not the demo app's
->    schema. Don't import or embed it.
-> 8. **No `WriteAPIClient`/`OpenAPITransport` DI abstraction.** The split version separates these
->    for composability across files; the single file has no test double to inject, so inline the
->    transport call as a private method on the connector class directly.
-> 9. **No `clientId`/`_writeClient` bookkeeping.** In the split version these are threaded through
->    `WriteAPIClientOptions` but never actually sent over the wire or read anywhere — dead state.
->    Confirm that's still true against the current split version before dropping it; if a future
->    change actually wires `clientId` into the request body, carry that behavior over instead.
-> 10. **Fully self-contained top-of-file comment block.** Someone copying just this one file won't
->     carry the README with them. The header must stand alone: what the file is, when to use it
->     over the split version, every const that needs editing, and the full auth caveat (demo token
->     vs a real identity provider, the JWKS/`GET /api/auth/keys` requirement for sync to work,
->     links to the client-side integration guide and `docs/auth-verifiers.md`).
-> 11. **Keep the overridable hook shape identical**: `uploadData`, `fetchCredentials`,
->     `getBatchingConfig`, `onFatalTransaction`, `onRetryableError`, `onTransportError` — same
->     method names, same override points, same doc comments explaining each, so someone reading
->     both versions side by side sees the same shape.
->
-> After regenerating, update:
-> - `example-client/README.md`'s "What's here" tree and the sentence pointing at the single-file
->   alternative, if the split version's file list changed.
-> - `docs/test.txt` section 5's check that `PowersyncConnector.singlefile.ts` has exactly one
->   import line, from `@powersync/web`.
->
-> Do not add a `package.json`, build step, or test suite to `example-client/` — it stays
-> non-runnable reference code, same as the split version.
+Preserve the modular connector's runtime behavior and follow these requirements:
 
-## Background: why these decisions, not others
+1. Keep the implementation in one file, alongside the modular version.
+2. Use one import from `@powersync/web`, with React Native compatibility documented.
+   Use plain `fetch` with authentication headers, JSON bodies, request timeouts, and
+   response status checks. Do not add dependencies, relative imports, or generated types.
+3. Keep configuration constants at the top. Match the defaults in `DemoConnectorConfig.ts`.
+   Constants have values, so environment-variable parsing and fallback logic are unnecessary.
+4. Generate demo user IDs with `crypto.randomUUID()`. Document that platforms without
+   this API need a polyfill or their own UUID generator.
+5. Define API types from the current OpenAPI contract, including discriminated result
+   unions and application-defined error codes. Preserve the contract's type constraints.
+6. Throw `AuthenticationError` for 401/403 responses so the connector clears its cached
+   token. Preserve error-message parsing and fallback handling for other failures.
+7. Keep `AppSchema.ts` separate from the connector.
+8. Implement transport as a private connector method. Do not add a transport injection layer.
+9. Omit the unused `clientId` request option and the modular `_writeClient` cache.
+   The single-file connector calls its own transport method. Preserve any future
+   behavior that depends on the client ID.
+10. Keep a concise header covering dependencies, editable constants, demo token setup,
+    write API verification, PowerSync JWKS configuration, and identity-provider integration.
+    Include the setup links because users may copy the file without its README.
+11. Preserve the methods and override points: `uploadData`, `fetchCredentials`,
+    `getBatchingConfig`, `onFatalTransaction`, `onRetryableError`, and `onTransportError`.
+    Keep shared behavior documented consistently in both connector versions.
 
-- **Config-as-consts over constructor options was a deliberate reversal of the first
-  recommendation.** The initial proposal was a constructor options object (more "proper," easier
-  to unit test). The decision that shipped was top-of-file consts instead — simpler for someone
-  who just wants to paste, edit two URLs, and go, with no object to construct or wire up.
-- **The self-contained-comment requirement is load-bearing.** The single file is explicitly meant
-  to travel *without* the README. If regenerating trims the header down to match the split
-  version's terser style, that defeats the point — verbosity in the header is intentional here,
-  not a smell.
-- **The "no external libraries" constraint includes `uuid`, not just `openapi-fetch`.** It's easy
-  to swap out the OpenAPI client and miss that `uuid` is also a dependency the split version pulls
-  in via `PowersyncConnector.ts`'s constructor.
+Write comments that explain behavior, configuration, or constraints. Avoid repeated
+reassurances, all-caps warnings, metaphors, and accounts of earlier design proposals.
+
+Update the example-client README if the file layout changes, and keep the single-import
+check in `docs/test.txt` consistent. The example client remains reference code without
+its own package manifest, build step, or test suite.
+
+## Fatal-error handling
+
+Preserve the discriminated response union. Fatal results require a boolean
+`requires_client_handling` and `failed_operation`; codes accept application strings,
+and details accept arbitrary JSON.
+
+Keep runtime checks for malformed responses and the `completeAcceptedPrefix` behavior.
+`onFatalTransaction` accepts `ClientHandledFatalResult` and returns
+`Promise<'retain' | 'complete'>`. Call it only for client-directed failures and retain
+by default. Complete the accepted prefix even when a callback fails, and never complete
+past a retained transaction or malformed result.
+
+Keep both connector versions covered by `backend/connector.test.ts`.

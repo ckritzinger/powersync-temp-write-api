@@ -1,13 +1,12 @@
-# Wiring in authorization
+# Authorization
 
-Authentication (`backend/src/auth/verifier.ts`, see [auth-verifiers.md](./auth-verifiers.md))
-answers *who is writing*. Authorization answers *what they're allowed to write* — and this
-backend ships with no opinion on that at all.
+Authentication identifies the caller. Authorization determines which writes the
+caller may make. The default authorizer allows all authenticated writes.
 
-## The seam
+## Authorization hook
 
-`backend/src/auth/authorizer.ts` exports `authorizer: Authorizer`, called once per transaction in
-`src/api/data.ts`, before anything is persisted:
+`backend/src/auth/authorizer.ts` exports an `Authorizer`, called once per transaction
+by `backend/src/api/data.ts` before persistence:
 
 ```ts
 export interface Authorizer {
@@ -15,84 +14,62 @@ export interface Authorizer {
 }
 ```
 
-`crud` is the transaction's operations as the client sent them — table, op, id, `op_data`. `auth`
-is the verified identity from the token (`{ sub, claims }`). Return `false` to reject the whole
-transaction; it comes back to the client as a fatal error (not retried).
+`crud` contains the operations sent by the client. `auth` contains the verified token
+subject and claims: `{ sub, claims }`.
 
-**The default implementation allows everything**, and logs an error every single time it's called:
+Returning `false` rejects the whole transaction with `UNAUTHORIZED`. The
+[fatal-error handler](error-handling.md) determines whether the client retains it.
+Client-directed failures remain queued until the application decides how to handle them.
+
+Replace `authorizer` with your application's checks, such as table permissions or
+required roles. The default implementation logs this message on every call:
 
 ```
-authorize(): no authorization is configured — every authenticated write is being allowed,
-no matter who sent it or what it touches. Replace backend/src/auth/authorizer.ts before
-this is anything but a demo. See docs/authorization.md.
+Authorization is not configured. All authenticated writes are allowed. Configure backend/src/auth/authorizer.ts; see docs/authorization.md.
 ```
 
-Replace the export. There's no worked example here beyond that — what "allowed" means is
-specific to your data model (per-table role checks? per-row ownership? something else?), and a
-generic demo backend has no context on your rows to write a real example against.
+## Checking existing rows
 
-## The limitation worth knowing before you design around it
+The hook receives the uploaded operations and verified identity. The `Persister`
+interface provides no method for reading existing rows. Checks that depend on a row's
+current owner should run inside the persister's database transaction.
 
-`authorize()` only sees what the client *sent* — it cannot look up the row currently in the
-database, because `Persister` has no read path, only `updateBatch`. A check like "does this user
-already own the list they're patching?" cannot be answered inside `authorize()` for a PATCH or
-DELETE; the existing row isn't available there.
+Use `authorize()` for checks that need no database lookup. For example, an application
+that accepts writes only to `lists` and `todos` could use:
 
-Two ways around that:
+```ts
+// Replace the existing export in backend/src/auth/authorizer.ts.
+export const authorizer: Authorizer = {
+  authorize(crud) {
+    return crud.every((entry) => ['lists', 'todos'].includes(entry.table));
+  }
+};
+```
 
-- **Coarse checks in `authorize()`** — role/claim-based, or shape-based (e.g. reject writes to
-  tables a client should never touch directly). No row lookup needed:
+This checks the uploaded table names. It does not establish row ownership.
+Likewise, comparing a client-supplied `op_data.owner_id` to `auth.sub` only checks the
+submitted value. To verify ownership, check the existing row using the verified subject.
 
-  ```ts
-  // export const authorizer: Authorizer = {
-  //   authorize(crud, auth) {
-  //     return crud.every((entry) => entry.op_data?.owner_id === auth.sub);
-  //   }
-  // };
-  ```
+For updates and deletes, you can include the ownership condition in the database write,
+for example `UPDATE ... WHERE id = $1 AND owner_id = $2`, with `auth.sub` as the owner.
+Handle the case where no row matches according to your application's error policy.
 
-  This only works if `op_data.owner_id` can be trusted — the client sent it, so it's exactly as
-  trustworthy as the client. Fine as a shape check; not a substitute for verifying ownership
-  against the row that actually exists (below).
+## MongoDB, MySQL, and SQL Server adapters
 
-- **Row-level checks inside the persister** — the persister you're actually using already holds a
-  live connection/transaction, so it can look up the existing row before writing, or express the
-  check directly in the write itself (e.g. `UPDATE ... WHERE id = $1 AND owner_id = $2`):
+These adapters receive `auth` in `updateBatch` but do not use it. Add permission checks
+in `authorize()`, or check existing rows within the adapter's database transaction.
 
-  ```ts
-  // const { rows } = await client.query('SELECT owner_id FROM lists WHERE id = $1', [entry.id]);
-  // if (rows[0]?.owner_id !== auth.sub) {
-  //   throw new FatalOperationError('UNAUTHORIZED', 'Not the owner of this row');
-  // }
-  ```
+## Postgres row-level security
 
-  (Postgres shown; same idea in any persister with a live connection — a lookup before the write,
-  or the ownership check folded straight into the `WHERE` clause.)
-
-## MongoDB, MySQL, SQL Server
-
-No native row-level security exists, and none is added here. `auth` is threaded into each of these persisters'
-`updateBatch` too, but unused. Real authorization for these means writing it yourself, either as
-a coarse check in `authorize()`, or inline in that database's persister where you have a live
-connection to query or condition the write against.
-
-## Postgres: row-level security
-
-Postgres is the only one of the four supported databases with a built-in mechanism for this.
-`createPostgresPersister` (`backend/src/persistance/postgres/postgres-persistance.ts`) sets a
-session variable from the authenticated `sub` at the start of every transaction:
+`createPostgresPersister` sets `app.user_id` from the verified subject at the start of
+each transaction:
 
 ```ts
 await client.query('SELECT set_config($1, $2, true)', ['app.user_id', auth.sub]);
 ```
 
-The `true` scopes it to the current transaction. A Row-Level Security policy on your tables can
-reference it:
+The `true` argument scopes the setting to that transaction. Your row-level security
+policies can read it with `current_setting('app.user_id', true)`.
 
-```sql
-CREATE POLICY owner_only ON lists
-  USING (owner_id = current_setting('app.user_id', true));
-```
-
-**No policies are defined by this reference backend.** The session variable is wired through;
-writing (and enabling) the policies for your schema is yours to do.
+Define and enable policies for your schema and database role. This backend sets the
+identity value but does not create policies.

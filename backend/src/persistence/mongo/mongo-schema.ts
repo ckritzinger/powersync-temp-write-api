@@ -44,15 +44,9 @@ function tableSchemaFromJsonSchema(jsonSchema: Record<string, unknown>): TableSc
 }
 
 /**
- * Discovers per-collection type coercion from MongoDB's own schema validation ($jsonSchema),
- * instead of a hand-maintained static map. Only collections with a real $jsonSchema validator get
- * an entry — a collection with none configured, or that doesn't exist yet, is absent from the
- * result. That absence is load-bearing: the caller (mongo-persistance.ts) treats "no entry" as
- * "no trustworthy shape to write against" and dead-letters the write instead of guessing at it.
- *
- * Captured once at boot, closed over for the life of the process. A validator added or changed on
- * a running server isn't picked up until restart — the same staleness tradeoff a hand-edited
- * static schema file would have had.
+ * Reads type mappings from collection $jsonSchema validators at startup.
+ * Collections without a validator are omitted; the default persister rejects writes to them.
+ * Restart the backend after changing validators to refresh these mappings.
  */
 export async function discoverSchema(db: Db): Promise<Record<string, TableSchema>> {
   const schema: Record<string, TableSchema> = {};
@@ -70,13 +64,8 @@ export async function discoverSchema(db: Db): Promise<Record<string, TableSchema
 }
 
 /**
- * Applies a table's type coercion to the fields present in `data`. A field with a converter in
- * `tableSchema` is coerced; a field with none — because the table has no schema at all, or its
- * validator didn't name this field, or named it with an unrecognized bsonType — passes through
- * unchanged rather than being dropped.
- *
- * A production application should probably also use MongoDB Schema Validation itself to enforce
- * these types in the database, not only coerce them on the way in.
+ * Converts fields with a matching type converter and preserves all other values.
+ * Use MongoDB schema validation to enforce types in the database.
  */
 export function applySchema(tableSchema: TableSchema, data: Record<string, unknown>): Record<string, unknown> {
   const converted: Record<string, unknown> = {};

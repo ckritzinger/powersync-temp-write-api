@@ -1,9 +1,6 @@
 /**
  * Verifies a bearer token and returns a normalized identity.
- *
- * Provider differences (key source, `aud` vs `azp`, claim names, RS256/HS256)
- * stay inside each implementation. Nothing downstream couples to a
- * provider's claim shape.
+ * Each implementation handles its provider's keys, algorithms, and claims.
  */
 export interface TokenVerifier {
   /** Resolves the verified identity, or throws if the token is invalid. */

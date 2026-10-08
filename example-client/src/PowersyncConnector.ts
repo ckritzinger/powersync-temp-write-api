@@ -1,55 +1,37 @@
 import { v4 as uuid } from 'uuid';
 
-// Requires @powersync/web (or @powersync/react-native) >=1.26.0 — that's the version
-// getCrudTransactions() was added in, and uploadTransactionBatch() below depends on it.
+// Requires @powersync/web or @powersync/react-native >=1.26.0 for getCrudTransactions().
 import type { AbstractPowerSyncDatabase, CrudTransaction, PowerSyncBackendConnector } from '@powersync/web';
-import { WriteAPIClient, type TransactionResult } from './library/powersync/WriteAPIClient';
+import {
+  WriteAPIClient,
+  type TransactionResult,
+  type ClientHandledFatalResult
+} from './library/powersync/WriteAPIClient';
 import { AuthenticationError, createOpenAPIClient, type OpenAPIClient } from './library/powersync/OpenAPITransport';
-import { DEFAULT_BATCHING_CONFIG, readDemoConfig, USER_ID_STORAGE_KEY, type BatchingConfig, type DemoConfig } from './library/powersync/DemoConnectorConfig';
-import { completionBoundary, sleep } from './library/powersync/TransactionBatching';
+import {
+  DEFAULT_BATCHING_CONFIG,
+  readDemoConfig,
+  USER_ID_STORAGE_KEY,
+  type BatchingConfig,
+  type DemoConfig
+} from './library/powersync/DemoConnectorConfig';
+import { completeAcceptedPrefix, sleep } from './library/powersync/TransactionBatching';
 
 export class PowersyncConnector implements PowerSyncBackendConnector {
-  // ===========================================================================================
-  // START HERE: uploadData and fetchCredentials are what connect PowerSync to your backend.
-  // Both ship with a demo default that already works end-to-end for local development — see
-  // each method's own comment for exactly what that means and what to change for production.
-  //
-  // See the client-side integration guide:
-  // https://docs.powersync.com/configuration/app-backend/client-side-integration#backend-connector
-  //
-  // Everything below this block is a reference implementation, already working — you don't need
-  // to touch it, but you can override any of it if you want different behaviour.
-
-  // Called by PowerSync whenever it has local changes to send to your backend.
-  // The implementation below already works with this repo's Write API backend.
-  // No changes are needed to get started.
+  // Called by PowerSync to upload queued local changes to the write API.
   async uploadData(database: AbstractPowerSyncDatabase): Promise<void> {
     const batching = this.getBatchingConfig();
     return this.uploadTransactionBatch(database, batching);
   }
 
-  // Returns the credentials PowerSync uses for the SYNC (read) connection — a different thing
-  // from the write API auth above uploadData uses, even though the demo default below happens to
-  // fetch from the same place.
-  //
-  // THIS DEFAULT WILL NOT WORK OUT OF THE BOX. It mints a token from this backend's own demo
-  // /api/auth/token endpoint, which is a validly-shaped PowerSync JWT — but your PowerSync
-  // instance only trusts it once its custom-auth (JWKS) setting is pointed at this backend's
-  // GET /api/auth/keys. Until you do that, PowerSync rejects every token this returns and sync
-  // never connects, even though uploadData() above keeps working fine (it talks to this backend
-  // directly, not to PowerSync). See the root README's Configuration section for that step.
-  //
-  // You've likely already implemented a real version of this while connecting your front-end to
-  // PowerSync. Replace the body below with that once you have a real identity provider — see
-  // https://docs.powersync.com/configuration/auth/development-tokens in the meantime.
+  // Returns credentials for the PowerSync sync connection, reusing the write API token.
+  // The write API accepts tokens your PowerSync instance trusts. See docs/auth-verifiers.md.
   async fetchCredentials() {
     return {
       endpoint: this.config.powersyncUrl,
       token: await this.getAuthToken()
     };
   }
-
-  // ===========================================================================================
 
   readonly config: DemoConfig;
   readonly userId: string;
@@ -78,22 +60,18 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
     });
   }
 
+  // Replace with your auth provider's session token (e.g. Supabase `session.access_token`).
+  // The demo reads a fixed token from VITE_POWERSYNC_TOKEN.
   private async fetchAuthToken(): Promise<string> {
-    const tokenEndpoint = 'api/auth/token';
-    const res = await fetch(`${this.config.backendUrl}/${tokenEndpoint}?user_id=${this.userId}`);
-
-    if (!res.ok) {
-      throw new Error(`Received ${res.status} from ${tokenEndpoint}: ${await res.text()}`);
+    if (!this.config.authToken) {
+      throw new Error('No auth token. Set VITE_POWERSYNC_TOKEN or replace fetchAuthToken().');
     }
-
-    const { token } = await res.json();
-    return token;
+    return this.config.authToken;
   }
 
   /**
-   * The bearer token for write API requests. Reuses whatever fetchCredentials last fetched for the
-   * sync connection; fetches its own if nothing has been cached yet (e.g. before the first
-   * connect), or after {@link onTransportError} invalidated a rejected token.
+   * Returns the cached token shared by sync and write requests.
+   * Fetches a token on first use or after {@link onTransportError} clears the cache.
    */
   private async getAuthToken(): Promise<string> {
     if (!this._authToken) {
@@ -106,7 +84,7 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
    * The batching config to use for the current upload. Reads the env-derived default; override to
    * make batching dynamic (e.g. shrink batch size after a fatal error, adjust for network conditions).
    */
-  protected getBatchingConfig(): BatchingConfig  {
+  protected getBatchingConfig(): BatchingConfig {
     return this.config.batching || DEFAULT_BATCHING_CONFIG;
   }
 
@@ -122,39 +100,32 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
   }
 
   /**
-   * Called when the backend permanently rejects a transaction (a bug in the application, not a
-   * transient failure). The transaction is discarded and the queue moves on regardless of what
-   * this method does.
-   *
-   * Default behaviour is to log and drop the data. Dead-lettering should happen server-side, where
-   * the failed write can actually be inspected and fixed — a client-side dead-letter queue is opaque
-   * to that process. Override to alert someone or forward `result` to a backend endpoint, not to
-   * store it locally.
+   * Called only for client-directed fatal errors. Retaining blocks later uploads and may call
+   * this hook again. Return 'complete' to explicitly discard the failed transaction.
+   * See docs/error-handling.md for user interaction and notification deduplication guidance.
    */
-  protected async onFatalTransaction(transaction: CrudTransaction, result: TransactionResult): Promise<void> {
-    console.error('Fatal error:', result.failedOperation?.error_code, result.message);
+  protected async onFatalTransaction(
+    transaction: CrudTransaction,
+    result: ClientHandledFatalResult
+  ): Promise<'retain' | 'complete'> {
+    console.error('Client handling required:', result.failedOperation.error_code, result.message);
+    return 'retain';
   }
 
   /**
-   * Called for a transient, in-band failure (the backend responded with `retryable_error`).
-   * Default behaviour waits out the backend's requested `retryAfterMs` (if any) and then throws,
-   * which causes PowerSync to retry the upload. Override to add custom logging/backoff, but a
-   * retryable error must still result in a thrown error so the transaction stays in the queue.
+   * Handles a backend `retryable_error` result. Waits for retryAfterMs, if supplied,
+   * then throws so PowerSync retains the transaction and retries the upload.
+   * Overrides must also throw to keep the transaction queued.
    */
-  protected async onRetryableError(result: TransactionResult): Promise<never> {
+  protected async onRetryableError(result: Extract<TransactionResult, { status: 'retryable_error' }>): Promise<never> {
     await sleep(result.retryAfterMs ?? 0);
     throw new Error(result.message ?? 'Retryable error');
   }
 
   /**
-   * Called for a transport-level failure (network error, timeout, non-2xx response) — the backend
-   * was never reached or never returned a classified result at all. Default behaviour routes it
-   * through {@link onRetryableError} so both failure kinds share one override point and the
-   * transaction stays in the queue for retry. Override to distinguish transport failures from
-   * in-band retryable errors.
-   *
-   * A rejected/expired token ({@link AuthenticationError}) is handled here too: the cached token is
-   * dropped so the next attempt's {@link getAuthToken} call fetches a fresh one before retrying.
+   * Handles network errors, timeouts, and non-2xx responses through {@link onRetryableError}.
+   * Clears the cached token on {@link AuthenticationError} so the next upload fetches a new one.
+   * Override to handle transport failures separately from backend retryable results.
    */
   protected async onTransportError(error: unknown): Promise<never> {
     if (error instanceof AuthenticationError) {
@@ -187,32 +158,17 @@ export class PowersyncConnector implements PowerSyncBackendConnector {
 
     let results: TransactionResult[];
     try {
-      ({ results } = await writeClient.processTransactionBatch(batch, batching.onFatalError));
+      ({ results } = await writeClient.processTransactionBatch(batch));
     } catch (error) {
       await this.onTransportError(error);
       return;
     }
 
-    // Report everything the backend dropped *before* completing over it, via the same
-    // overridable hook the single-transaction path uses.
-    for (const [index, result] of results.entries()) {
-      if (result.status === 'fatal_error') {
-        await this.onFatalTransaction(batch[index], result);
-      }
-    }
-
-    // One completion per batch, at the completion boundary. Completing a transaction also completes
-    // every transaction before it, so completing each success in turn would be redundant.
-    const boundary = completionBoundary(results);
-    if (boundary >= 0) {
-      await batch[boundary].complete();
-    }
-
-    // Anything from the failure onwards stays in the queue. Completing the applied prefix first means
-    // the retry resumes from the failure instead of re-uploading transactions that already committed.
-    const retryable = results.find((result) => result.status === 'retryable_error');
-    if (retryable) {
-      await this.onRetryableError(retryable);
-    }
+    await completeAcceptedPrefix(
+      batch,
+      results,
+      (index, result) => this.onFatalTransaction(batch[index], result),
+      (result) => this.onRetryableError(result)
+    );
   }
 }

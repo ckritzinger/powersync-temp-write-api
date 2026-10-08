@@ -1,15 +1,11 @@
-import { applySchema } from '../persistance/mongo/mongo-schema.js';
-import type { TableSchema } from '../persistance/mongo/mongo-schema.js';
+import { applySchema } from '../persistence/mongo/mongo-schema.js';
+import type { TableSchema } from '../persistence/mongo/mongo-schema.js';
 import type { EntryMapper } from './types.js';
 
 /**
- * Builds an EntryMapper backed by per-collection schemas discovered from MongoDB's own
- * $jsonSchema validators (see mongo-schema.ts's discoverSchema, called once at boot in
- * mongo-persistance.ts).
- *
- * Only called for tables the persister has already confirmed have a discovered schema — a table
- * with none is dead-lettered and the transaction rejected before this mapper ever sees it (see
- * mongo-persistance.ts). The `?? {}` below is a defensive fallback, not the normal path.
+ * Converts fields using collection schemas discovered at startup.
+ * The default MongoDB persister rejects collections without a discovered schema before
+ * calling this mapper. The empty-schema fallback leaves fields unchanged.
  */
 export const createMongoMapper = (schema: Record<string, TableSchema>): EntryMapper => {
   return (entry) => {

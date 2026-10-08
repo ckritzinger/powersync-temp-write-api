@@ -1,197 +1,138 @@
 # PowerSync Write API
 
-## Intro/Overview
+This backend accepts queued changes from a PowerSync client and writes them to your
+source database. PowerSync then syncs that database to clients.
 
-This is a self-hostable backend for the PowerSync write path: a client uploads its queued local changes to
-an HTTP API, which persists them to your source database. PowerSync replicates that database back
-to clients.
+The repository includes an Express API, adapters for Postgres, MongoDB, MySQL, and
+SQL Server, and reference TypeScript connectors. You supply the database, PowerSync
+instance, client application, and application-specific authorization.
 
-**Clone it, point it at your own database and PowerSync instance, and change the code.**
+## Setup
 
-This repo assumes you already have:
+Run the commands below from the repository root. Docker Compose runs the backend;
+local development and tests use Node.js 24 and pnpm 9. The existing `backend/.nvmrc`
+pins an older Node version, so select Node 24 explicitly for local work.
 
-1. A **hosted PowerSync instance** ([PowerSync Cloud](https://www.powersync.com/) or your own
-   self-managed deployment elsewhere) connected to a **database you already run**
-   (see [supported databases](https://docs.powersync.com/configuration/source-db/setup)).
-   It does not bundle either of these.
+### 1. Configure the database
 
-2. A front-end already connected to PowerSync, displaying local data, and updating its local
-   SQLite database with data mutations via `db.execute(...)`, as described in the
-   [PowerSync Setup Guide](https://docs.powersync.com/intro/setup-guide#write-data).
+Edit the root `.env` for Docker Compose:
 
-   > The setup guide's `uploadData()` example is built on the older, singular
-   > `getNextCrudTransaction()`. This repo's `example-client` instead uses the newer, plural
-   > `getCrudTransactions()` async-iterator API (`@powersync/web`/`@powersync/react-native`
-   > >=1.26.0) — see `example-client/README.md`. Don't mix the two shapes.
+| Variable | Meaning |
+| --- | --- |
+| `DATABASE_TYPE` | `postgres` (default), `mongodb`, `mysql`, or `mssql` |
+| `DATABASE_URI` | Required connection string for your source database |
+| `BATCH_ON_FATAL_ERROR` | `stop` (default) or `skip`; see [error handling](docs/error-handling.md) |
 
-PowerSync automatically queues these mutations and calls your `uploadData()` function, which is
-where you upload the changes to your backend. The write API is that backend: it persists the
-mutations to your source database. The `example-client` folder has a reference implementation of
-`uploadData()` that connects to this API.
+`.env` is committed, so keep it to shared defaults. Put this machine's values and any secret, such
+as a `DATABASE_URI` with a password, in a `.env.local` beside it: it is gitignored, optional, and
+overrides `.env`. Compose passes both files to the container, so `docker compose up` needs no extra
+flags. Setting a variable in your shell no longer overrides them; use `.env.local` instead.
 
-## Quickstart
+Use the database that your PowerSync instance already replicates. Tables and columns
+must match uploaded operations unless you add [schema mapping](docs/schema-mapping.md).
+MongoDB transactions require a replica set or sharded cluster; the default MongoDB
+mapper also requires collection `$jsonSchema` validators.
 
-```bash
-docker compose up --build   # Crash-loops until configuration below is done, it needs DATABASE_TYPE and DATABASE_URI to boot
-```
+In Docker Desktop, use `host.docker.internal` to reach a database on the host.
+For a backend running directly on the host, use the database's host-accessible address,
+such as `localhost`. Other Docker environments may require a host-gateway configuration.
 
-Brings up the write API at http://localhost:6060
+### 2. Configure authentication
 
-### Configuration
+Follow [the auth setup guide](backend/src/auth/SETUP.md). The default backend reads a
+PowerSync Cloud export from `backend/powersync-config.json`; generic providers also
+require an expected issuer and audience in `backend/src/auth/verifier.ts`.
 
-For the API to be usable, you need to perform the following config:
+Compose mounts the export read-only. To use a different file, set `POWERSYNC_CONFIG_PATH`
+to its absolute host path in the root `.env`. The file must exist before starting Compose.
 
-1. Replace the throwaway signing keys:
-   ```bash
-   cd backend && pnpm generate-keys      # prints both values for .env
-   ```
+For Supabase or Clerk, see [provider integration](docs/auth-verifiers.md). Self-hosted
+PowerSync requires adapting the verifier loader as described in the setup guide.
+The backend does not issue tokens. It only accepts tokens signed by keys your auth config
+trusts, so clients authenticate with the same provider your PowerSync instance uses.
 
-> The signing keys in `.env` are a **public throwaway pair**. These are committed so the backend signs
-> consistently across restarts. __Replace them before this is anything but a demo.__ If no keypair is
-> configured at all, the backend generates a temporary one at boot instead. This is fine for a one-off
-> run, but every restart will create a new key. Once this happens, PowerSync will reject tokens it
-> accepted moments earlier with:
-> `PSYNC_S2101 — Could not find an appropriate key in the keystore`.
-
-2. Set the rest of `.env`:
-
-   | Variable | Meaning |
-   | --- | --- |
-   | `DATABASE_TYPE` | `postgres`, `mongodb`, `mysql`, or `mssql` |
-   | `DATABASE_URI` | Connection string for your source database |
-   | `PORT` | Defaults to 6060. Only applies to the bare-host run path (`pnpm start`/`pnpm dev`); the Quickstart's `docker compose up` hardcodes `PORT: "6060"` and a fixed `"6060:6060"` port mapping in `docker-compose.yaml`, so setting `PORT` in `.env` has no effect there — edit `docker-compose.yaml` itself to change the Docker-Compose port. |
-   | `POWERSYNC_URL`, `JWT_ISSUER` | Audience and issuer for the tokens this backend mints — must match your PowerSync instance's auth settings |
-   | `POWERSYNC_PRIVATE_KEY`, `POWERSYNC_PUBLIC_KEY` | The signing keys from step 1 |
-
-   The backend refuses to start, before serving any traffic, if `DATABASE_URI` is unset — with a
-   message naming the fix, not a stack trace. `DATABASE_TYPE` is not strictly required alongside
-   it: if unset, it defaults to `postgres` rather than failing boot.
-
-3. **Your client needs code to actually call this backend.** Nothing calls `/api/data` for you —
-   copy the pieces in `example-client/` into your app to perform writes. See
-   `example-client/README.md` for detailed instructions.
-
-4. **Your client needs to reach this backend.** `localhost:6060` only works if the client runs on
-   this same machine. Otherwise either bind the backend to `0.0.0.0` and put a client on the same
-   network, or tunnel it (e.g. `ngrok http 6060`) and point the client at the public URL instead.
-
-> If your database runs on this machine rather than in Docker, the backend reaches it at
-> `host.docker.internal`, not `localhost` — inside a container, `localhost` is the container.
-
-## Connect your front-end
-
-The backend alone does nothing, it must be called by a PowerSync client.
-
-To achieve that, you need to implement two methods on your `PowerSyncBackendConnector`:
-
- - `fetchCredentials()` (get a token from `/api/auth/token` or your own IdP), and
- -  `uploadData()` (turn queued local mutations into `POST /api/data` calls).
-
-`example-client/` has a reference implementation of both, ready to copy into your app. Either use the
-typed version or a single zero-dependency file. See [example-client/README.md](./example-client/README.md)
-for what's there and how to wire it in.
-
-## Layout
-
-```
-write-api/
-├── docker-compose.yaml       # The write API, standalone
-├── docker-compose.dev.yaml   # Overlay: edit backend code without rebuilding
-├── .env                      # Backend config and throwaway dev keys
-├── backend/                  # The write API (Express, port 6060)
-│   └── openapi.yaml          # The write API's contract, also consumed by example-client/
-├── example-client/           # Minimum PowerSync-client code that calls the write API
-└── docs/
-    ├── auth-verifiers.md     # Swapping demo auth for Supabase/Clerk/your own IdP
-    ├── authorization.md      # Wiring in real authorization — there is none by default
-    ├── schema-mapping.md     # Beyond the default 1:1 field mapping
-    └── test.txt              # Manual QA checklist
-```
-
-## API overview
-
-There are three endpoints. Only `/api/data` is in `backend/openapi.yaml` This is the main endpoint
-used to write data back from the PowerSync client. The two auth endpoints below are
-ancillary/for development purposes and are not included in the Write API spec.
-
-- **POST `/api/data`** — the only write endpoint. Accepts a transaction batch (an ordered run of
-  whole transactions from the client's upload queue, capped at 50 transactions per request — see
-  `TransactionBatch.transactions.maxItems` in `backend/openapi.yaml`) and applies each in its own
-  database transaction, stopping at the first failure. Optional `on_fatal_error` in the body: `stop`
-  (default) ends the batch there; `skip` drops that transaction and continues, so a queue blocked
-  by one poison operation can still drain. Either way, the response reports one result per
-  transaction sent, so the client always knows what was applied.
-
-Every failure is either **retryable** (deadlock, lock timeout, connection loss)
-or **fatal** (bad data that can never be stored, or an error the backend doesn't
-recognize).
-Each supported database maps its driver's own errors onto these two in `backend/src/persistance/*/*-errors.ts`.
-Unrecognized errors default to fatal rather than being retried forever.
-
-[node-postgres](https://github.com/brianc/node-postgres),
-[mongodb](https://www.npmjs.com/package/mongodb), [mysql2](https://www.npmjs.com/package/mysql2),
-and [node-mssql](https://www.npmjs.com/package/mssql) are used to implement the four persisters.
-
-### Ancillary auth endpoints
-
-- **GET `/api/auth/token`** — returns a JWT for PowerSync auth. Optional `user_id` query param
-  sets the token's subject.
-- **GET `/api/auth/keys`** — the JWKS endpoint your PowerSync instance's custom-auth settings
-  verify tokens against.
-
-[jose](https://github.com/panva/jose) signs and verifies the JWTs.
-
-## Changing the backend
-
-Append the development overlay to run with hot-reload:
+### 3. Start the API
 
 ```bash
-COMPOSE_FILE=docker-compose.yaml:docker-compose.dev.yaml
-docker compose up
+docker compose up --build
 ```
 
-Your working tree is mounted into the container and the process restarts on save.
+The API listens at `http://localhost:6060`. Compose fixes both the container and host
+port to 6060; change its `ports` mapping to expose a different host port.
 
-Or skip Docker entirely:
+Startup checks the database type, connection string, fatal-error policy, and verifier
+configuration. Remote JWKS keys are fetched when needed during token verification.
+A successful startup does not prove that every database operation or provider is reachable.
+
+### 4. Connect the client
+
+Copy a connector from [example-client](example-client/README.md) into your app. Configure
+its write API URL, PowerSync sync URL, and token retrieval, then pass it to your existing
+PowerSync database's `connect()` method. The connector implements:
+
+- `fetchCredentials()`: credentials for the PowerSync sync connection.
+- `uploadData()`: sends queued local transactions to `POST /api/data`.
+
+Use a URL reachable from the client device. `localhost` refers to that device, so another
+computer or phone needs the backend's network address or a tunnel URL.
+
+## Application behavior
+
+The default authorizer allows all authenticated writes. Add your application's checks in
+[`backend/src/auth/authorizer.ts`](backend/src/auth/authorizer.ts); see
+[authorization](docs/authorization.md). Configure your PowerSync sync streams or rules
+separately to control which rows each user can read.
+
+[Schema mapping](docs/schema-mapping.md) describes field conversion and custom writes.
+[Error handling](docs/error-handling.md) explains rejected transactions, queue retention,
+and the optional dead-letter callback. By default, fatal failures are logged by the backend
+and removed from the client upload queue. The callback does not provide durable storage.
+
+## API
+
+`backend/powersync-reference-write-api.openapi.yaml` defines `POST /api/data`. It accepts 1–50 transactions and processes
+them in order, each in its own database transaction. It returns one result per submitted
+transaction, including `not_attempted` for transactions after the stopping point.
+
+Processed batches return HTTP 200; inspect the individual result statuses. Request validation
+and authentication failures use HTTP errors such as 400 and 401. Transaction outcomes are
+`success`, `retryable_error`, `fatal_error`, or `not_attempted`.
+
+`BATCH_ON_FATAL_ERROR=skip` continues after backend-directed fatal failures. Client-directed
+fatal failures and retryable failures stop the batch. See [error handling](docs/error-handling.md).
+
+## Development
+
+For Docker with automatic reloads:
 
 ```bash
-cd backend && pnpm install && pnpm dev
+docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up --build
 ```
 
-**WARNING:** Running this alongside the Dockerized backend fails with "address already in use", or quietly
-shadows the container port.
-
-## Key integration points
-
-- `backend/src/auth/verifier.ts` swap the demo's tokens for your own identity provider. See
-  [docs/auth-verifiers.md](./docs/auth-verifiers.md).
-- `backend/src/auth/authorizer.ts` **there is no authorization by default**, only
-  authentication. Every authenticated write is currently allowed, no matter what it touches. See
-  [docs/authorization.md](./docs/authorization.md).
-- `backend/src/mapping/` how a `CrudEntry` becomes a database write. The default is a naive 1:1
-  field pass-through for Postgres/MySQL/MSSQL — but Mongo's default mapper behaves differently: it
-  dead-letters and fatal-errors any write to a collection without a pre-existing `$jsonSchema`
-  validator, a bigger first-integration lift. See [docs/schema-mapping.md](./docs/schema-mapping.md).
-
-## Tests
+For local execution, stop the Compose backend, create `backend/.env` from
+`backend/.env.template`, and configure it for your host's database address and auth setup.
+The local process loads `backend/.env`; Compose reads the root `.env`.
 
 ```bash
-cd backend && pnpm test    # HTTP against the assembled app, plus the boot-failure contract
-cd backend && pnpm check   # types
+pnpm --dir backend install
+pnpm --dir backend dev
 ```
 
-Neither needs Docker.
+The local port defaults to 6060 and can be changed with `PORT` in `backend/.env`.
+Restart after changing auth configuration. Rebuild the image after code changes when
+using Compose without the development overlay.
 
-## Generating types from the contract
-
-The repo root has no `package.json` of its own — there's nothing to install and nothing to run
-from here. Everything with a build step lives in `backend/`:
+## Tests and API types
 
 ```bash
-cd backend && pnpm install
-cd backend && pnpm generate-types   # regenerates backend/src/generated/api.ts AND
-                                     # example-client/src/generated/api.d.ts, both from openapi.yaml
+pnpm --dir backend test
+pnpm --dir backend check
+pnpm --dir backend generate-types
 ```
 
-**Changed `backend/openapi.yaml`? Run it.** Nothing regenerates these automatically, and stale
-stubs compile fine while silently drifting from what the backend actually accepts.
+Tests use local fixtures and mocks; they need permission to open local listening ports,
+but no Docker, running database, or live identity provider. Type generation updates both
+`backend/src/generated/api.ts` and `example-client/src/generated/api.d.ts` from the OpenAPI
+spec. Run it after editing the spec.
+
+[The manual checklist](docs/test.txt) provides a separate Postgres test setup.
